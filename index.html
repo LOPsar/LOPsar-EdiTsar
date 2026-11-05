@@ -229,10 +229,9 @@ const SY={bc:null,peers:{},cloud:null,timer:0,ptimer:0};
 function syncOpen(){try{if(SY.bc)SY.bc.close();}catch(e){}
  try{SY.bc=new BroadcastChannel('editsar-'+P.id);SY.bc.onmessage=e=>onSyncMsg(e.data);SY.bc.postMessage({k:'hello',from:CLIENT});}catch(e){SY.bc=null;}}
 function syncSend(){clearTimeout(SY.timer);SY.timer=setTimeout(()=>{try{SY.bc&&SY.bc.postMessage({k:'proj',from:CLIENT,p:P});}catch(e){}if(SY.cloud)SY.cloud.push();},250);}
-function presSend(){const now=performance.now();if(now-SY.ptimer<250)return;SY.ptimer=now;try{SY.bc&&SY.bc.postMessage({k:'pres',from:CLIENT,name:ME.name,color:ME.color,t:ST.t});}catch(e){}if(SY.cloud)SY.cloud.pres();}
 function onSyncMsg(m){if(!m||m.from===CLIENT)return;
  if(m.k==='proj')mergeRemote(m.p);
- else if(m.k==='pres'){SY.peers[m.from]={name:m.name,color:m.color,t:m.t,ts:Date.now()};if(window.renderPeers)renderPeers();}
+ else if(m.k==='pres'){onPeerMsg(m.from,m);schedPeers();}
  else if(m.k==='hello'){syncSend();presSend();}}
 function mergeRemote(Rm){if(!Rm||Rm.id!==P.id)return false;let ch=false,localNewer=false;
  for(const id in Rm.tomb||{})if(!P.tomb[id]||P.tomb[id]<Rm.tomb[id])P.tomb[id]=Rm.tomb[id];
@@ -244,6 +243,75 @@ function mergeRemote(Rm){if(!Rm||Rm.id!==P.id)return false;let ch=false,localNew
  if((Rm.metaT||0)>(P.metaT||0)){P.name=Rm.name;P.fps=Rm.fps;P.w=Rm.w;P.h=Rm.h;P.metaT=Rm.metaT;ch=true;}
  if(ch){reconcileSel();for(const id in EL)if(!P.clips[id])destroyEl(id);if(window.linkAll)linkAll();changedRemote();}
  if(localNewer)syncSend();return ch;}
+/* ================= EdiTsar · perfil y cursores de colaboradores ================= */
+const ANIMALS=[['🦥','Perezoso'],['🦜','Lapa'],['🦊','Zorro'],['🐼','Panda'],['🐨','Koala'],['🐯','Tigre'],['🦁','León'],['🐸','Rana'],['🐙','Pulpo'],['🦉','Búho'],['🐧','Pingüino'],['🐢','Tortuga'],['🦄','Unicornio'],['🐱','Gato'],['🐶','Perro'],['🐰','Conejo'],['🐒','Mono'],['🦋','Mariposa']];
+const PCOLORS=['#ffb347','#5cd0ff','#4ecb8a','#ff7fa8','#c79bff','#ffe066','#ff6b6b','#a3e635'];
+const PROF=(()=>{let p={};try{p=JSON.parse(localStorage.getItem('ed.prof')||'{}')||{};}catch(e){}return p;})();
+if(PROF.showOthers==null)PROF.showOthers=true;if(PROF.share==null)PROF.share=true;
+function saveProf(){try{localStorage.setItem('ed.prof',JSON.stringify(PROF));}catch(e){}}
+ME.av=PROF.av||'';if(PROF.color)ME.color=PROF.color;if(PROF.name)ME.name=PROF.name;
+document.head.append(h('style',{text:'#peers{cursor:pointer}.peer{font-size:12px;line-height:1}.rcur{position:absolute;left:0;top:0;pointer-events:none;z-index:60;transition:opacity .35s;will-change:transform}.rcur svg{display:block;filter:drop-shadow(0 1px 2px #000a)}.rcur .rtag{position:absolute;left:14px;top:14px;font:600 11px var(--ui,system-ui);color:#111;padding:1px 7px 1px 5px;border-radius:9px;white-space:nowrap;box-shadow:0 1px 3px #0008}.pk span{display:flex;gap:3px;align-items:center}'}));
+/* ---------- envío ---------- */
+const CUR={z:0,x:0,y:0,dirty:false,bcT:0};
+const PW={last:0,lastT:-9,hb:0,n:0,day:'',warned:false};
+function wbCount(){const d=new Date().toISOString().slice(0,10);let n=0;try{const r=JSON.parse(localStorage.getItem('ed.wb')||'{}');n=r.d===d?r.n:0;}catch(e){}return{d,n};}
+function wbInc(){const c=wbCount();c.n++;try{localStorage.setItem('ed.wb',JSON.stringify(c));}catch(e){}return c.n;}
+function presState(){return{name:ME.name,color:ME.color,av:ME.av||'',t:ST.t,z:PROF.share?CUR.z:0,x:CUR.x,y:CUR.y,cts:Date.now(),ts:Date.now()};}
+function presSend(force){const now=performance.now();
+ /* pestañas del mismo navegador: gratis, rápido */
+ if(force||now-CUR.bcT>70){CUR.bcT=now;try{SY.bc&&SY.bc.postMessage(Object.assign({k:'pres',from:CLIENT},presState()));}catch(e){}}
+ /* nube: gotea para cuidar la cuota gratuita de Firebase */
+ if(!SY.cloud||(document.hidden&&!force))return;
+ const t=Date.now(),n=wbCount().n,moving=CUR.dirty&&PROF.share&&n<6000,tCh=Math.abs(ST.t-PW.lastT)>.05;
+ const gap=moving?350:(tCh&&n<9000?3000:15000);
+ if(!force&&t-PW.last<gap)return;
+ if(n>=12000){if(!PW.warned){PW.warned=true;toast('Presencia en la nube en pausa por hoy (para no pasar el límite gratuito). La edición sigue sincronizando.',5000);}return;}
+ if(n>=6000&&!PW.warned){PW.warned=true;toast('Cursores en la nube en pausa por hoy para cuidar el límite gratuito.',5000);}
+ PW.last=t;PW.lastT=ST.t;CUR.dirty=false;wbInc();SY.cloud.pres(presState());}
+function onPeerMsg(id,d){const p=SY.peers[id]||(SY.peers[id]={});p.name=d.name;p.color=d.color;p.av=d.av||'';p.t=d.t;p.ts=Date.now();
+ if(d.z&&(d.x!==p.x||d.y!==p.y||d.z!==p.z)){p.cts=Date.now();}p.z=d.z;p.x=d.x;p.y=d.y;}
+function schedPeers(){if(SY.pr)return;SY.pr=setTimeout(()=>{SY.pr=0;renderPeers();},200);}
+/* ---------- captura del mouse ---------- */
+function onMouseCur(e){if(EXP&&EXP.on)return;let z=0,x=0,y=0;const t=e.target;
+ if(t&&t.closest){if(t.closest('#tlInner')){const r=$('#tlInner').getBoundingClientRect();z='tl';x=(e.clientX-r.left-THW)/ST.zoom;y=e.clientY-r.top;}
+  else if(t.closest('#progMon')){const c=$('#cv').getBoundingClientRect();if(c.width>0&&e.clientX>=c.left&&e.clientX<=c.right&&e.clientY>=c.top&&e.clientY<=c.bottom){z='pm';x=(e.clientX-c.left)/c.width;y=(e.clientY-c.top)/c.height;}}}
+ if(z===CUR.z&&Math.abs(x-CUR.x)<(z==='tl'?.02:.002)&&Math.abs(y-CUR.y)<(z==='tl'?2:.002))return;
+ CUR.z=z;CUR.x=x;CUR.y=y;CUR.dirty=true;presSend();}
+document.addEventListener('mousemove',onMouseCur,{passive:true});
+document.addEventListener('mouseleave',()=>{CUR.z=0;CUR.dirty=true;presSend(true);});
+document.addEventListener('visibilitychange',()=>{if(document.hidden){CUR.z=0;CUR.dirty=true;presSend(true);}});
+/* ---------- dibujo de cursores ajenos ---------- */
+const RC={};
+function cursorEl(id,p){let r=RC[id];if(!r){const el=h('div',{class:'rcur'});r=RC[id]={el,x:null,y:null};}
+ const k=(p.color||'#fff')+'|'+(p.av||'')+'|'+(p.name||'');if(r.k!==k){r.k=k;r.el.innerHTML='<svg width="18" height="18" viewBox="0 0 18 18"><path d="M2 1 L2 14 L5.6 10.8 L8.2 16.4 L10.6 15.3 L8 9.8 L12.8 9.6Z" fill="'+esc(p.color||'#fff')+'" stroke="#000" stroke-width="1.1" stroke-linejoin="round"/></svg>';const tg=h('span',{class:'rtag',style:'background:'+(p.color||'#fff')},(p.av?p.av+' ':'')+(p.name||'?'));r.el.append(tg);}return r;}
+function cursorLoop(){requestAnimationFrame(cursorLoop);const now=Date.now();
+ for(const id in RC)if(!SY.peers[id]){RC[id].el.remove();delete RC[id];}
+ for(const id in SY.peers){const p=SY.peers[id];const live=PROF.showOthers&&p.z&&now-(p.cts||0)<4500;
+  if(!live){if(RC[id])RC[id].el.style.opacity=0;continue;}
+  const r=cursorEl(id,p);let par,tx,ty;
+  if(p.z==='tl'){par=$('#tlInner');tx=THW+p.x*ST.zoom;ty=p.y;}
+  else{par=$('#progMon');const c=$('#cv');if(!c||!par)continue;tx=c.offsetLeft+p.x*c.offsetWidth;ty=c.offsetTop+p.y*c.offsetHeight;}
+  if(!par)continue;if(r.el.parentNode!==par){par.append(r.el);r.x=null;}
+  if(r.x==null){r.x=tx;r.y=ty;}else{r.x+=(tx-r.x)*.35;r.y+=(ty-r.y)*.35;}
+  r.el.style.transform='translate('+r.x.toFixed(1)+'px,'+r.y.toFixed(1)+'px)';r.el.style.opacity=1;}}
+requestAnimationFrame(cursorLoop);
+/* ---------- diálogo de perfil ---------- */
+function profileDialog(){
+ const d={name:ME.name,color:ME.color,av:ME.av||'',share:PROF.share,showOthers:PROF.showOthers};
+ const prev=h('div',{style:'display:inline-flex;align-items:center;gap:8px;padding:8px 12px;background:#151517;border-radius:8px;margin-bottom:10px'});
+ const nm=h('input',{type:'text',value:d.name,maxlength:'20',style:'width:100%'});
+ const drawPrev=()=>{prev.innerHTML='<svg width="22" height="22" viewBox="0 0 18 18"><path d="M2 1 L2 14 L5.6 10.8 L8.2 16.4 L10.6 15.3 L8 9.8 L12.8 9.6Z" fill="'+esc(d.color)+'" stroke="#000" stroke-width="1.1" stroke-linejoin="round"/></svg>';prev.append(h('span',{style:'background:'+d.color+';color:#111;font-weight:600;font-size:12px;padding:2px 9px;border-radius:10px'},(d.av?d.av+' ':'')+(nm.value||'?')));};
+ const sw=h('div',{style:'display:flex;gap:6px;flex-wrap:wrap;margin:6px 0 12px;align-items:center'});
+ const drawSw=()=>{sw.innerHTML='';PCOLORS.forEach(c=>sw.append(h('button',{style:'width:26px;height:26px;border-radius:50%;padding:0;background:'+c+';border:2px solid '+(d.color===c?'#fff':'transparent'),title:c,onclick:()=>{d.color=c;drawSw();drawPrev();}})));
+  const ci=h('input',{type:'color',value:/^#[0-9a-f]{6}$/i.test(d.color)?d.color:'#ffb347',title:'Color personalizado',style:'width:30px;height:28px;padding:0;border:0;background:none',oninput:e=>{d.color=e.target.value;drawPrev();}});sw.append(ci);};
+ const an=h('div',{style:'display:grid;grid-template-columns:repeat(6,1fr);gap:5px;margin:6px 0 12px'});
+ const drawAn=()=>{an.innerHTML='';[['','Ninguno']].concat(ANIMALS).forEach(([e,n])=>an.append(h('button',{title:n,style:'font-size:20px;padding:4px 0;line-height:1.2;border:2px solid '+(d.av===e?'#fff':'transparent'),onclick:()=>{d.av=e;drawAn();drawPrev();}},e||'—')));};
+ nm.addEventListener('input',drawPrev);drawSw();drawAn();drawPrev();
+ const ck=(txt,k)=>{const i=h('input',{type:'checkbox',style:'margin-right:8px'});i.checked=!!d[k];i.onchange=()=>{d[k]=i.checked;};return h('label',{style:'display:block;margin:6px 0;cursor:pointer'},i,txt);};
+ const body=h('div',{style:'min-width:340px'},prev,h('div',{class:'muted',text:'Nombre'}),nm,h('div',{class:'muted',style:'margin-top:10px',text:'Color'}),sw,h('div',{class:'muted',text:'Animalito'}),an,
+  ck('Mostrar mi cursor a los demás','share'),ck('Ver los cursores de los demás','showOthers'));
+ modal('Mi perfil de colaboración',body,[h('button',{onclick:closeModal},'Cancelar'),h('button',{class:'pri',onclick:()=>{ME.name=(nm.value.trim()||ME.name).slice(0,20);ME.color=d.color;ME.av=d.av;PROF.name=ME.name;PROF.color=d.color;PROF.av=d.av;PROF.share=d.share;PROF.showOthers=d.showOthers;saveProf();closeModal();renderPeers();presSend(true);}},'Guardar')]);}
+const _pe=document.getElementById('peers');if(_pe){_pe.title='Mi perfil y cursores';_pe.addEventListener('click',profileDialog);}
 /* ================= EdiTsar · medios locales ================= */
 const EXT_V=/\.(mp4|mov|m4v|webm|mkv|avi|mxf|ogv|mts|3gp)$/i,EXT_A=/\.(wav|mp3|m4a|aac|ogg|oga|flac|aif|aiff|opus)$/i,EXT_I=/\.(png|jpe?g|webp|gif|bmp|avif)$/i;
 const kindOf=n=>EXT_V.test(n)?'video':EXT_A.test(n)?'audio':EXT_I.test(n)?'image':null;
@@ -482,9 +550,9 @@ function clipEl(c){const A=P.assets[c.a],m=A&&MEDIA[A.id],z=ST.zoom;const kind=c
  e.append(h('i',{class:'fd',style:'left:'+Math.max(0,c.fi*z-5)+'px','data-fd':'l',title:'Fundido de entrada'}),h('i',{class:'fd',style:'right:'+Math.max(0,c.fo*z-5)+'px','data-fd':'r',title:'Fundido de salida'}));
  return e;}
 function updateTlInfo(){const n=ST.sel.size;const el=$('#tlInfo');if(el)el.textContent=n?n+' clip'+(n>1?'s':'')+' seleccionado'+(n>1?'s':''):'';}
-function renderPeers(){const now=Date.now();for(const k in SY.peers)if(now-SY.peers[k].ts>6000)delete SY.peers[k];
- const pe=$('#peers');if(pe){pe.innerHTML='';const all=[{name:ME.name,color:ME.color,me:1},...Object.values(SY.peers)];all.slice(0,6).forEach(p=>pe.append(h('span',{class:'peer',style:'background:'+p.color,title:p.name+(p.me?' (tú)':'')},(p.name||'?')[0].toUpperCase())));}
- const rl=$('#rulerLane');if(rl){$$('.pk',rl).forEach(x=>x.remove());for(const k in SY.peers){const p=SY.peers[k];rl.append(h('i',{class:'pk',style:'left:'+Math.round(p.t*ST.zoom)+'px;background:'+p.color},h('span',{style:'background:'+p.color,text:p.name})));}}}
+function renderPeers(){const now=Date.now();for(const k in SY.peers)if(now-SY.peers[k].ts>40000)delete SY.peers[k];
+ const pe=$('#peers');if(pe){pe.innerHTML='';const all=[{name:ME.name,color:ME.color,me:1},...Object.values(SY.peers)];all.slice(0,6).forEach(p=>pe.append(h('span',{class:'peer',style:'background:'+p.color,title:p.name+(p.me?' (tú)':'')},(p.av||(p.name||'?')[0].toUpperCase()))));}
+ const rl=$('#rulerLane');if(rl){$$('.pk',rl).forEach(x=>x.remove());for(const k in SY.peers){const p=SY.peers[k];rl.append(h('i',{class:'pk',style:'left:'+Math.round(p.t*ST.zoom)+'px;background:'+p.color},h('span',{style:'background:'+p.color,text:(p.av?p.av+' ':'')+p.name})));}}}
 function timeAtX(cx){const r=$('#tlInner').getBoundingClientRect();return (cx-r.left-THW)/ST.zoom;}
 function revealPlayhead(){const sc=$('#tlScroll'),x=ST.t*ST.zoom;if(x<sc.scrollLeft+10||x>sc.scrollLeft+sc.clientWidth-THW-30)sc.scrollLeft=Math.max(0,x-(sc.clientWidth-THW)*.3);}
 function setZoomFromSlider(){const v=+$('#zoom').value;const sc=$('#tlScroll');const ph=ST.t*ST.zoom-sc.scrollLeft;ST.zoom=4*Math.pow(256,v/100);renderTL();sc.scrollLeft=Math.max(0,ST.t*ST.zoom-ph);}
@@ -803,7 +871,7 @@ const CLOUD={ok:false,user:null,db:null,loading:null};
 function loadScript(src){return new Promise((res,rej)=>{const s=document.createElement('script');s.src=src;s.onload=res;s.onerror=()=>rej(new Error('carga'));document.head.append(s);});}
 async function loadFirebase(){if(CLOUD.loading)return CLOUD.loading;CLOUD.loading=(async()=>{
  for(const base of ['https://cdn.jsdelivr.net/npm/firebase@10.12.0/','https://www.gstatic.com/firebasejs/10.12.0/']){try{for(const f of ['firebase-app-compat.js','firebase-auth-compat.js','firebase-firestore-compat.js'])await Promise.race([loadScript(base+f),new Promise((_,r)=>setTimeout(()=>r(new Error('t')),6000))]);if(window.firebase&&firebase.auth&&firebase.firestore){
-  firebase.initializeApp(CFG.firebase);CLOUD.db=firebase.firestore();CLOUD.ok=true;firebase.auth().onAuthStateChanged(u=>{CLOUD.user=u?{uid:u.uid,email:(u.email||'').toLowerCase(),name:u.displayName||u.email||'Usuario'}:null;if(CLOUD.user){ME.name=CLOUD.user.name.split(' ')[0];ME.uid=CLOUD.user.uid;ME.email=CLOUD.user.email;}$('#bAcct').textContent=CLOUD.user?'👤 '+ME.name:'Cuenta';renderPeers();gateUpdate();if(CLOUD.user&&CLOUD.pendingOpen){const id=CLOUD.pendingOpen;CLOUD.pendingOpen=null;cloudOpen(id);}});return true;}}catch(e){}}
+  firebase.initializeApp(CFG.firebase);CLOUD.db=firebase.firestore();CLOUD.ok=true;firebase.auth().onAuthStateChanged(u=>{CLOUD.user=u?{uid:u.uid,email:(u.email||'').toLowerCase(),name:u.displayName||u.email||'Usuario'}:null;if(CLOUD.user){if(!PROF.name)ME.name=CLOUD.user.name.split(' ')[0];ME.uid=CLOUD.user.uid;ME.email=CLOUD.user.email;}$('#bAcct').textContent=CLOUD.user?'👤 '+ME.name:'Cuenta';renderPeers();gateUpdate();if(CLOUD.user&&CLOUD.pendingOpen){const id=CLOUD.pendingOpen;CLOUD.pendingOpen=null;cloudOpen(id);}});return true;}}catch(e){}}
  return false;})();return CLOUD.loading;}
 const fbMsg=e=>{const c=(e&&e.code)||'';return({'auth/invalid-email':'Correo no válido.','auth/missing-password':'Escribe tu contraseña.','auth/weak-password':'Mínimo 6 caracteres.','auth/invalid-credential':'Correo o contraseña incorrectos.','auth/email-already-in-use':'Ese correo ya existe: inicia sesión.','permission-denied':'Firestore rechazó el acceso: revisa las reglas de seguridad (ver LEEME).','too-big':'El proyecto es demasiado grande para la nube (1 MB).'}[c])||(e&&e.message)||String(e);};
 async function accountDialog(){const ok=await loadFirebase();
@@ -817,10 +885,10 @@ const cloudDoc=id=>CLOUD.db.collection(CFG.col.projects).doc(id);
 async function cloudList(){try{const q1=await CLOUD.db.collection(CFG.col.projects).where('members','array-contains',CLOUD.user.email).get();return q1.docs.map(d=>({id:d.id,name:d.data().name||'Proyecto',owner:d.data().owner}));}catch(e){toast(fbMsg(e),4000);return[];}}
 function cloudAttach(){if(SY.cloud)SY.cloud.stop();const ref=cloudDoc(P.id);let u1=null,u2=null;let first=true;
  const api={push:async()=>{try{await ref.set({name:P.name,json:JSON.stringify(P),by:CLIENT,ts:Date.now()},{merge:true});}catch(e){toast(fbMsg(e),4000);}},
-  pres:()=>{try{ref.collection('pres').doc(CLIENT).set({name:ME.name,color:ME.color,t:ST.t,ts:Date.now()});}catch(e){}},
+  pres:(o)=>{try{ref.collection('pres').doc(CLIENT).set(o||presState());}catch(e){}},
   stop:()=>{u1&&u1();u2&&u2();try{ref.collection('pres').doc(CLIENT).delete();}catch(e){}}};
  u1=ref.onSnapshot(s=>{if(!s.exists)return;const d=s.data();if(d.by===CLIENT&&!first)return;first=false;try{mergeRemote(JSON.parse(d.json));}catch(e){}},e=>toast(fbMsg(e),4000));
- u2=ref.collection('pres').onSnapshot(s=>{s.docChanges().forEach(ch=>{const d=ch.doc.data(),id=ch.doc.id;if(id===CLIENT)return;if(ch.type==='removed'||Date.now()-d.ts>15000)delete SY.peers[id];else SY.peers[id]={name:d.name,color:d.color,t:d.t,ts:Date.now()};});renderPeers();});
+ u2=ref.collection('pres').onSnapshot(s=>{s.docChanges().forEach(ch=>{const d=ch.doc.data(),id=ch.doc.id;if(id===CLIENT)return;if(ch.type==='removed'||Date.now()-d.ts>40000)delete SY.peers[id];else onPeerMsg(id,d);});renderPeers();});
  SY.cloud=api;return api;}
 async function cloudShare(){if(!CLOUD.user)return accountDialog();const ref=cloudDoc(P.id);try{const s=await ref.get();if(!s.exists)await ref.set({owner:CLOUD.user.uid,members:[CLOUD.user.email],name:P.name,json:JSON.stringify(P),by:CLIENT,ts:Date.now()});else await ref.set({json:JSON.stringify(P),by:CLIENT,ts:Date.now()},{merge:true});cloudAttach();toast('Proyecto compartido en la nube');collabDialog();}catch(e){toast(fbMsg(e),5000);}}
 async function cloudOpen(id){if(!CLOUD.user){CLOUD.pendingOpen=id;return accountDialog();}try{const s=await cloudDoc(id).get();if(!s.exists)return toast('El proyecto no existe o no tienes acceso');const p=JSON.parse(s.data().json);openProject(p);cloudAttach();}catch(e){toast(fbMsg(e),5000);}}
