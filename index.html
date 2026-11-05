@@ -169,11 +169,12 @@ function h(tag,a,...k){const e=document.createElement(tag);if(a)for(const x in a
  for(const c of k.flat()){if(c==null||c===false)continue;e.append(c.nodeType?c:document.createTextNode(c));}return e;}
 const clamp=(v,a,b)=>Math.max(a,Math.min(b,v)),uid=()=>Math.random().toString(36).slice(2,8)+Date.now().toString(36).slice(-3);
 const clone=o=>JSON.parse(JSON.stringify(o));
+const ED_LOGO="<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 96 96\" role=\"img\" aria-hidden=\"true\"><rect x=\"3\" y=\"3\" width=\"90\" height=\"90\" rx=\"20\" fill=\"#1e293b\" stroke=\"#334155\" stroke-width=\"2\"/><rect x=\"14\" y=\"24\" width=\"31\" height=\"12\" rx=\"3\" fill=\"#f59e0b\"/><rect x=\"51\" y=\"24\" width=\"31\" height=\"12\" rx=\"3\" fill=\"#fbbf24\"/><rect x=\"14\" y=\"41\" width=\"18\" height=\"12\" rx=\"3\" fill=\"#94a3b8\"/><rect x=\"36\" y=\"41\" width=\"46\" height=\"12\" rx=\"3\" fill=\"#f59e0b\"/><rect x=\"14\" y=\"58\" width=\"68\" height=\"12\" rx=\"3\" fill=\"#334155\"/><path d=\"M18 64 h4 v-3 h3 v6 h3 v-8 h3 v10 h3 v-5 h3 v3 h4 v-3 h3 v7 h3 v-9 h3 v6 h3 v-4 h3 v3 h4\" stroke=\"#94a3b8\" stroke-width=\"1.6\" fill=\"none\"/><rect x=\"47\" y=\"14\" width=\"2.6\" height=\"68\" rx=\"1.3\" fill=\"#e2e8f0\"/><path d=\"M40.5 12 H56 L48.3 22Z\" fill=\"#e2e8f0\"/></svg>";
 const CFG={
  firebase:{apiKey:"AIzaSyArE42nx13HuxiIbBYJRf-Mwu_8jxnlnl4",authDomain:"inventario-tai.firebaseapp.com",projectId:"inventario-tai",storageBucket:"inventario-tai.firebasestorage.app",messagingSenderId:"304149994706",appId:"1:304149994706:web:85e6535d499cf1c038e10b"},
  col:{projects:'editsar_projects'},
- portalUrl:'',       /* URL del Hub. Si se llena, aparece «‹ Hub» */
- portalRequired:false
+ portalUrl:'https://lopsar.github.io/LOPsarHub/',       /* URL del Hub (aparece «‹ Hub» y es donde se inicia sesión) */
+ portalRequired:true
 };
 function toast(m,ms){const t=$('#toast');t.textContent=m;t.style.display='block';clearTimeout(toast.t);toast.t=setTimeout(()=>t.style.display='none',ms||2600);}
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -781,12 +782,28 @@ async function exportVideo(o){pause();ensureAC();await AC.resume();
 function exportDone(){if(!EXP.on)return;clearInterval(EXP.timer);setTimeout(()=>{try{expRec.stop();}catch(e){finishExportUI();}},350);}
 function exportCancel(){EXP.cancel=true;clearInterval(EXP.timer);pause();try{expRec.stop();}catch(e){finishExportUI();}}
 function finishExportUI(){clearInterval(EXP.timer);const o=EXP.old||{};ST.quality=+( $('#qual').value)||.5;ST.tout=o.tout==null?ST.tout:o.tout;ST.loop=!!o.loop;if(MON)MON.gain.value=1;EXP={on:false};closeModal();}
+
+/* ---------- acceso obligatorio (sesión del LOPsar Hub) ---------- */
+function hubLogin(){const u=CFG.portalUrl;return u+(u.includes('?')?'&':'?')+'next='+encodeURIComponent(location.href);}
+function gateEl(){let g=$('#gate');if(!g){g=h('div',{id:'gate',style:'position:fixed;inset:0;z-index:99999;background:#0b0e14;display:flex;align-items:center;justify-content:center;padding:20px;font:14px system-ui,sans-serif;color:#e2e8f0'});document.body.append(g);}return g;}
+function gateShow(msg,retry){if(window.__EDTEST)return;const g=gateEl();g.textContent='';
+ const box=h('div',{style:'max-width:380px;text-align:center;display:flex;flex-direction:column;gap:14px;align-items:center'},
+  h('div',{style:'width:84px;height:84px'},(()=>{const d=document.createElement('div');d.innerHTML=ED_LOGO;return d.firstChild;})()),
+  h('div',{style:'font:700 28px "Barlow Condensed","Arial Narrow",sans-serif;letter-spacing:.08em;text-transform:uppercase'},'EdiTsar'),
+  h('div',{style:'color:#94a3b8'},msg));
+ if(retry)box.append(h('button',{style:'padding:9px 16px;border-radius:6px;border:1px solid #334155;background:#1e293b;color:#e2e8f0;cursor:pointer',onclick:()=>location.reload()},'Reintentar'));
+ if(CFG.portalUrl)box.append(h('a',{href:hubLogin(),style:'padding:9px 16px;border-radius:6px;background:#f59e0b;color:#1a1205;font-weight:600;text-decoration:none'},'Iniciar sesión en el Hub'));
+ g.append(box);}
+function gateUpdate(){if(window.__EDTEST){const g=$('#gate');if(g)g.remove();return;}
+ if(CLOUD.user){const g=$('#gate');if(g)g.remove();return;}
+ if(CFG.portalRequired&&CFG.portalUrl){location.replace(hubLogin());return;}
+ gateShow('Para usar EdiTsar necesitas iniciar sesión.');}
 /* ---------- nube (Firebase) y cuenta ---------- */
 const CLOUD={ok:false,user:null,db:null,loading:null};
 function loadScript(src){return new Promise((res,rej)=>{const s=document.createElement('script');s.src=src;s.onload=res;s.onerror=()=>rej(new Error('carga'));document.head.append(s);});}
 async function loadFirebase(){if(CLOUD.loading)return CLOUD.loading;CLOUD.loading=(async()=>{
  for(const base of ['https://cdn.jsdelivr.net/npm/firebase@10.12.0/','https://www.gstatic.com/firebasejs/10.12.0/']){try{for(const f of ['firebase-app-compat.js','firebase-auth-compat.js','firebase-firestore-compat.js'])await Promise.race([loadScript(base+f),new Promise((_,r)=>setTimeout(()=>r(new Error('t')),6000))]);if(window.firebase&&firebase.auth&&firebase.firestore){
-  firebase.initializeApp(CFG.firebase);CLOUD.db=firebase.firestore();CLOUD.ok=true;firebase.auth().onAuthStateChanged(u=>{CLOUD.user=u?{uid:u.uid,email:(u.email||'').toLowerCase(),name:u.displayName||u.email||'Usuario'}:null;if(CLOUD.user){ME.name=CLOUD.user.name.split(' ')[0];ME.uid=CLOUD.user.uid;ME.email=CLOUD.user.email;}$('#bAcct').textContent=CLOUD.user?'👤 '+ME.name:'Cuenta';renderPeers();if(CLOUD.user&&CLOUD.pendingOpen){const id=CLOUD.pendingOpen;CLOUD.pendingOpen=null;cloudOpen(id);}});return true;}}catch(e){}}
+  firebase.initializeApp(CFG.firebase);CLOUD.db=firebase.firestore();CLOUD.ok=true;firebase.auth().onAuthStateChanged(u=>{CLOUD.user=u?{uid:u.uid,email:(u.email||'').toLowerCase(),name:u.displayName||u.email||'Usuario'}:null;if(CLOUD.user){ME.name=CLOUD.user.name.split(' ')[0];ME.uid=CLOUD.user.uid;ME.email=CLOUD.user.email;}$('#bAcct').textContent=CLOUD.user?'👤 '+ME.name:'Cuenta';renderPeers();gateUpdate();if(CLOUD.user&&CLOUD.pendingOpen){const id=CLOUD.pendingOpen;CLOUD.pendingOpen=null;cloudOpen(id);}});return true;}}catch(e){}}
  return false;})();return CLOUD.loading;}
 const fbMsg=e=>{const c=(e&&e.code)||'';return({'auth/invalid-email':'Correo no válido.','auth/missing-password':'Escribe tu contraseña.','auth/weak-password':'Mínimo 6 caracteres.','auth/invalid-credential':'Correo o contraseña incorrectos.','auth/email-already-in-use':'Ese correo ya existe: inicia sesión.','permission-denied':'Firestore rechazó el acceso: revisa las reglas de seguridad (ver LEEME).','too-big':'El proyecto es demasiado grande para la nube (1 MB).'}[c])||(e&&e.message)||String(e);};
 async function accountDialog(){const ok=await loadFirebase();
@@ -883,7 +900,7 @@ function init(){
  const hashCloud=/#cloud=([\w-]+)/.exec(location.hash);const last=localStorage.getItem('ed.last');let p=last&&loadLocal(last);
  P=p||newProject('Sin título');$('#pname').value=P.name;syncOpen();linkAll();renderTL();renderProject();renderFx();focusPanel();updTransport();setTool('v');
  requestAnimationFrame(tick);restoreRoot();
- loadFirebase().then(()=>{if(hashCloud)cloudOpen(hashCloud[1]);});
+ gateShow('Verificando sesión…');loadFirebase().then(ok=>{if(!ok)gateShow('No se pudo conectar con el inicio de sesión (sin internet o bloqueado).',true);if(hashCloud)cloudOpen(hashCloud[1]);});
  window.addEventListener('hashchange',()=>{});
 }
 window.__E={get P(){return P;},ST,MEDIA,EL,ROOT,edit,undo,redo,addAssetAt,addTitle,splitAtPlayhead,applyEffect,mergeRemote,renderTL,drawProgram,seek,play,pause,pickFolder,scanFileList,afterRoot,rootReset,importEntries,projEnd,exportVideo,exportDone,exportEDL,setFx,resolveOverlaps,deleteClips,fxv,SY,CLIENT,syncSend,openSource,srcInsert,newProject,openProject,saveLocal,linkAll,splitClip,get EXP(){return EXP;},get err(){return window.__lastErr;},setSpeed,applyEffectFn:applyEffect,clipsArr,tcStr};
