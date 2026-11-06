@@ -416,7 +416,10 @@ async function ffInit(){if(FF)return FF;const V=window.__FFV||FFV;
  await ffScript(V.lib+'ffmpeg.js');if(!window.FFmpegWASM)throw new Error('El conversor no se pudo iniciar');
  let wk='814.ffmpeg.js';try{const tx=await(await fetch(V.lib+'ffmpeg.js')).text();const m=/\.e\((\d+)\)/.exec(tx);if(m)wk=m[1]+'.ffmpeg.js';}catch(e){}
  const ff=new FFmpegWASM.FFmpeg();ff.on('progress',e=>{if(FFcb)FFcb(e.progress);});
- await ff.load({classWorkerURL:await ffBlob(V.lib+wk,'text/javascript'),coreURL:await ffBlob(V.core+'ffmpeg-core.js','text/javascript'),wasmURL:await ffBlob(V.core+'ffmpeg-core.wasm','application/wasm')});
+ const cw=await ffBlob(V.lib+wk,'text/javascript'),cu=await ffBlob(V.core+'ffmpeg-core.js','text/javascript'),wu=await ffBlob(V.core+'ffmpeg-core.wasm','application/wasm');
+ /* el worker UMD debe ser clásico (importScripts); como módulo falla con «Cannot find module 'blob:…'» */
+ const OW=window.Worker;window.Worker=function(u,o){o=Object.assign({},o||{});delete o.type;return new OW(u,o);};window.Worker.prototype=OW.prototype;
+ try{await ff.load({classWorkerURL:cw,coreURL:cu,wasmURL:wu});}finally{window.Worker=OW;}
  try{await ff.createDir('/src');}catch(e){}
  FF=ff;return ff;}
 async function ffConvert(a,onP){const m=MEDIA[a.id];if(!m||!m.file)throw new Error('archivo no disponible');const ff=await ffInit();FFcb=onP;const nm=m.file.name;
