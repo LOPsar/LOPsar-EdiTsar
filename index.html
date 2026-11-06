@@ -1073,9 +1073,9 @@ function buildPremiereXML(){
  const xml='<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE xmeml>\n<xmeml version="4"><sequence id="sequence-1"><name>'+xe(P.name||'Secuencia')+'</name><duration>'+fr(end)+'</duration>'+rate+'<media><video><format><samplecharacteristics>'+rate+'<width>'+W+'</width><height>'+H+'</height><pixelaspectratio>square</pixelaspectratio></samplecharacteristics></format>'+trackXml(vT,true)+'</video><audio><numOutputChannels>2</numOutputChannels>'+trackXml(aT,false)+'</audio></media>'+mks+'</sequence></xmeml>';
  return{xml,count:clips.length,skipped,clips};}
 function premiereDialog(){const r=buildPremiereXML();
- modal('Exportar a Premiere Pro',h('div',{style:'max-width:420px'},h('p',{text:'Se genera un archivo XML con tu secuencia ('+r.count+' clips con su posición, duración, recortes, velocidad y pistas). En Premiere: Archivo → Importar y elige el XML.'}),
-  h('p',{text:'Premiere te pedirá enlazar los medios (usa los ORIGINALES, no los proxies) con «Vincular medios». Van también tus marcadores y las transiciones (como disolvencia). No se transfieren los efectos de color, keyframes ni LUTs'+(r.skipped?'; además se omiten '+r.skipped+' clip(s) de texto o imagen':'')+'.',style:'color:var(--mu)'})),
-  [h('button',{onclick:closeModal},'Cancelar'),h('button',{onclick:()=>{const e=buildEDL();closeModal();download((P.name||'secuencia').replace(/[^\w\-. ]+/g,'_')+'.edl',new Blob([e.edl],{type:'text/plain'}));toast('EDL listo ('+e.count+' eventos)');},title:'Lista de cortes CMX3600: solo posiciones y recortes; sirve también para DaVinci, Avid, etc.'},'Descargar EDL'),h('button',{class:'pri',onclick:()=>{closeModal();download((P.name||'secuencia').replace(/[^\w\-. ]+/g,'_')+'.xml',new Blob([r.xml],{type:'application/xml'}));toast('XML listo para importar en Premiere');}},'Descargar XML')]);}
+ modal('Exportar a otro editor de video',h('div',{style:'max-width:420px'},h('p',{text:'Se genera un archivo XML con tu secuencia ('+r.count+' clips con su posición, duración, recortes, velocidad y pistas). En tu otro editor: Archivo → Importar y elige el XML.'}),
+  h('p',{text:'El otro editor te pedirá enlazar los medios (usa los ORIGINALES, no los proxies). Van también tus marcadores y las transiciones (como disolvencia). No se transfieren los efectos de color, keyframes ni LUTs'+(r.skipped?'; además se omiten '+r.skipped+' clip(s) de texto o imagen':'')+'.',style:'color:var(--mu)'})),
+  [h('button',{onclick:closeModal},'Cancelar'),h('button',{onclick:()=>{const e=buildEDL();closeModal();download((P.name||'secuencia').replace(/[^\w\-. ]+/g,'_')+'.edl',new Blob([e.edl],{type:'text/plain'}));toast('EDL listo ('+e.count+' eventos)');},title:'Lista de cortes CMX3600: solo posiciones y recortes; lo aceptan casi todos los editores profesionales.'},'Descargar EDL'),h('button',{class:'pri',onclick:()=>{closeModal();download((P.name||'secuencia').replace(/[^\w\-. ]+/g,'_')+'.xml',new Blob([r.xml],{type:'application/xml'}));toast('XML listo para importar en tu otro editor');}},'Descargar XML')]);}
 
 function buildEDL(){const fps=P.fps||30,tb=Math.round(fps),ntsc=[23.976,29.97,59.94].some(x=>Math.abs(fps-x)<.02);
  const tc=f=>{f=Math.max(0,Math.round(f));const ff=f%tb,sec=Math.floor(f/tb),ss=sec%60,mm=Math.floor(sec/60)%60,hh=Math.floor(sec/3600);return[hh,mm,ss,ff].map(n=>String(n).padStart(2,'0')).join(':');};
@@ -1240,15 +1240,27 @@ async function stSend(blob,name,sub){const dir=sub||'Estudio';let nm=name,path=d
 function stProjectAssets(kind){return Object.values(P.assets).filter(a=>a.kind===kind&&MEDIA[a.id]&&MEDIA[a.id].file);}
 function stAssetPicker(kind,title,cb){const list=stProjectAssets(kind);const body=h('div',{style:'min-width:320px;max-height:50vh;overflow:auto'},...(list.length?list.map(a=>h('div',{class:'btn',style:'display:block;margin:3px 0;cursor:pointer',onclick:()=>{closeModal();cb(MEDIA[a.id].file,a);}},a.name)):[h('p',{text:'No hay medios de este tipo en el proyecto.',style:'color:var(--mu)'})]));
  modal(title,body,[h('button',{onclick:closeModal},'Cerrar')]);}
-function studioOpen(tab){let e=$('#studio');if(!e){e=h('div',{id:'studio'});const tabs=h('div',{class:'tabs'}),body=h('div',{class:'stb'});
-  e.append(h('div',{class:'sth'},h('b',{text:'Estudio'}),tabs,h('span',{class:'grow',style:'flex:1'}),h('small',{text:'Lo que crees se envía al panel Proyecto',style:'color:var(--mu)'}),h('button',{onclick:()=>{e.style.display='none';}},'✕ Cerrar')),body);
-  for(const k in ST_MODS){const m=ST_MODS[k],pane=h('div',{'data-m':k});body.append(pane);tabs.append(h('button',{'data-m':k,onclick:()=>studioOpen(k)},m.icon+' '+m.title));m.pane=pane;}
+function studioOpen(tab){let e=$('#studio');if(!e){e=h('div',{id:'studio'});const body=h('div',{class:'stb'});e.append(body);
+  for(const k in ST_MODS){const m=ST_MODS[k],pane=h('div',{'data-m':k});body.append(pane);m.pane=pane;}
   document.body.append(e);}
  tab=tab||ST_CUR||Object.keys(ST_MODS)[0];ST_CUR=tab;e.style.display='flex';
- $$('.tabs button',e).forEach(b=>b.classList.toggle('on',b.dataset.m===tab));$$('.stb>div',e).forEach(p=>p.classList.toggle('on',p.dataset.m===tab));
- const m=ST_MODS[tab];if(!m.mounted){m.mounted=true;m.mount(m.pane);}if(m.show)m.show();}
-function studioMenu(){return[['Estudio · Imagen (tipo Photoshop)…',()=>studioOpen('img')],['Estudio · Vectores (tipo Illustrator)…',()=>studioOpen('vec')],['Estudio · Motion Graphics (tipo After Effects)…',()=>studioOpen('mot')],['Estudio · Audio (tipo Audition)…',()=>studioOpen('aud')]];}
-/* ================= Estudio · IMAGEN (tipo Photoshop) ================= */
+ $$('.stb>div',e).forEach(p=>p.classList.toggle('on',p.dataset.m===tab));suiteMark(tab);
+ const m=ST_MODS[tab];if(!m.mounted){m.mounted=true;m.mount(m.pane);if(m.first)m.first();}if(m.show)m.show();}
+function studioClose(){const e=$('#studio');if(e)e.style.display='none';suiteMark(null);}
+const SUITE=[[null,'🎬','EdiTsar','Edición de video'],['img','🎨','Lienzo','Fotos e imágenes'],['vec','✒️','Trazo','Vectores y logos'],['mot','✨','Kinema','Gráficos animados'],['aud','🎚','Sónica','Estudio de audio']];
+document.head.append(h('style',{text:`#suite{position:fixed;top:0;left:0;right:0;height:34px;z-index:97;display:flex;align-items:center;gap:4px;padding:0 10px;background:linear-gradient(#1b1c2e,#14151f);border-bottom:1px solid var(--ln)}
+#suite b{letter-spacing:.08em;font-size:11px;color:var(--mu);margin-right:8px;text-transform:uppercase}
+#suite button.sb{display:flex;align-items:center;gap:6px;height:26px;padding:0 13px;border-radius:13px;background:transparent;border:1px solid transparent;color:var(--tx);font-weight:600}
+#suite button.sb small{font-weight:400;color:var(--mu);font-size:10px}#suite button.sb:hover{background:var(--p3)}
+#suite button.sb.on{background:var(--ac2);border-color:var(--ac);color:#fff}#suite button.sb.on small{color:#d8d4ff}
+#app{margin-top:34px;height:calc(100% - 34px)}#studio{inset:34px 0 0 0}#home{inset:34px 0 0 0}`}));
+function suiteMark(tab){$$('#suite button.sb').forEach(b=>b.classList.toggle('on',(b.dataset.m||null)===(tab||null)));}
+(function(){const bar=h('nav',{id:'suite'},h('b',{text:'Suite'}));
+ SUITE.forEach(([k,ic,nm,sub])=>bar.append(h('button',{class:'sb'+(k?'':' on'),'data-m':k||'',title:sub,onclick:()=>{if(k){if(typeof homeHide==='function')homeHide();studioOpen(k);}else{studioClose();}}},ic+' '+nm,h('small',{text:sub}))));
+ bar.append(h('span',{style:'flex:1'}),h('small',{id:'suiteHint',style:'color:var(--mu);margin-right:8px',text:'Lo que crees se envía al panel Proyecto'}),h('button',{class:'btn',title:'Guía rápida de este módulo',onclick:()=>suiteHelp(ST_CUR&&$('#studio')&&$('#studio').style.display==='flex'?ST_CUR:null)},'❓ ¿Cómo se usa?'));
+ document.body.append(bar);})();
+function studioMenu(){return[['🎨 Lienzo · fotos e imágenes…',()=>studioOpen('img')],['✒️ Trazo · vectores y logos…',()=>studioOpen('vec')],['✨ Kinema · gráficos animados…',()=>studioOpen('mot')],['🎚 Sónica · estudio de audio…',()=>studioOpen('aud')]];}
+/* ================= Estudio · IMAGEN ================= */
 const IM={w:0,h:0,layers:[],act:null,sel:null,z:1,ox:0,oy:0,tool:'brush',color:'#ff3b30',size:24,hard:70,op:100,tol:30,undo:[],redo:[],stroke:null,prev:null,bgc:null,cv:null,ctx:null,el:null,font:'Inter, sans-serif',fsize:80,gstart:null,drag:null,mark:null};
 const IM_BM=[['source-over','Normal'],['multiply','Multiplicar'],['screen','Trama'],['overlay','Superponer'],['darken','Oscurecer'],['lighten','Aclarar'],['color-dodge','Sobreexponer color'],['color-burn','Subexponer color'],['hard-light','Luz fuerte'],['soft-light','Luz suave'],['difference','Diferencia'],['exclusion','Exclusión'],['hue','Tono'],['saturation','Saturación'],['color','Color'],['luminosity','Luminosidad']];
 const imMk=(w,h2)=>{const c=document.createElement('canvas');c.width=w;c.height=h2;return c;};
@@ -1414,8 +1426,8 @@ function imMount(el){IM.el=el;el.classList.add('sx');
  window.addEventListener('paste',e=>{if(ST_CUR==='img'&&$('#studio').style.display==='flex'){const it=[...(e.clipboardData||{}).items||[]].find(i=>i.type.startsWith('image/'));if(it){imPlaceFile(it.getAsFile(),true);e.preventDefault();}}});
  setTimeout(()=>{if(!IM.w)imNewDoc(1920,1080,'#ffffff');},50);}
 async function imPaste(){try{const items=await navigator.clipboard.read();for(const it of items){const t=it.types.find(t=>t.startsWith('image/'));if(t){imPlaceFile(new File([await it.getType(t)],'Pegado.png'),true);return;}}toast('No hay imagen en el portapapeles');}catch(e){toast('Usa Ctrl+V sobre el lienzo para pegar');}}
-ST_MODS.img={title:'Imagen',icon:'🖼',mount:imMount,show:()=>setTimeout(()=>{imFit();imDraw();IM.zl&&(IM.zl.textContent=Math.round(IM.z*100)+'%');},30)};
-/* ================= Estudio · VECTORES (tipo Illustrator) ================= */
+ST_MODS.img={title:'Lienzo',icon:'🎨',mount:imMount,show:()=>setTimeout(()=>{imFit();imDraw();IM.zl&&(IM.zl.textContent=Math.round(IM.z*100)+'%');},30)};
+/* ================= Estudio · VECTORES ================= */
 const VC={w:1920,h:1080,objs:[],sel:[],tool:'select',fill:{t:'solid',c:'#7a6bff'},stroke:'#1b1b1b',sw:2,sides:5,inner:45,undo:[],redo:[],z:1,ox:0,oy:0,drag:null,pen:null,el:null,svg:null,name:'vector',font:'Inter, sans-serif',fs:96,node:null,bgc:'#ffffff'};
 const vEsc=s=>String(s).replace(/[<>&"]/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c]));
 const vSel=()=>VC.objs.filter(o=>VC.sel.includes(o.id));
@@ -1428,10 +1440,13 @@ const vRectLike=o=>['rect','ell','poly','star','text','img'].includes(o.t);
 function vBB(o){if(vRectLike(o))return{x:o.x,y:o.y,w:o.w,h:o.h};let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9;for(const p of o.pts){for(const q of [[p.x,p.y],[p.x+p.ix,p.y+p.iy],[p.x+p.ox,p.y+p.oy]]){x0=Math.min(x0,q[0]);y0=Math.min(y0,q[1]);x1=Math.max(x1,q[0]);y1=Math.max(y1,q[1]);}}return{x:x0,y:y0,w:Math.max(1,x1-x0),h:Math.max(1,y1-y0)};}
 function vPathD(o){const P=o.pts;if(!P.length)return'';let d='M'+P[0].x+' '+P[0].y;const seg=(a,b)=>' C'+(a.x+a.ox)+' '+(a.y+a.oy)+' '+(b.x+b.ix)+' '+(b.y+b.iy)+' '+b.x+' '+b.y;for(let i=1;i<P.length;i++)d+=seg(P[i-1],P[i]);if(o.closed&&P.length>2)d+=seg(P[P.length-1],P[0])+'Z';return d;}
 function vPolyPts(o){const n=o.t==='star'?o.sides*2:o.sides,cx=o.x+o.w/2,cy=o.y+o.h/2,rx=o.w/2,ry=o.h/2,pts=[];for(let i=0;i<n;i++){const a=-Math.PI/2+i*2*Math.PI/n,k=o.t==='star'&&i%2?o.inner/100:1;pts.push((cx+Math.cos(a)*rx*k).toFixed(2)+','+(cy+Math.sin(a)*ry*k).toFixed(2));}return pts.join(' ');}
-function vAttrs(o){let a='';if(!o.fill)a+=' fill="none"';else if(o.fill.t==='lin')a+=' fill="url(#g'+o.id+')"';else a+=' fill="'+o.fill.c+'"';
- if(o.stroke&&o.sw>0)a+=' stroke="'+o.stroke+'" stroke-width="'+o.sw+'" stroke-linejoin="round" stroke-linecap="round"';if(o.op<100)a+=' opacity="'+o.op/100+'"';
+function vAttrs(o){let a='';if(!o.fill)a+=' fill="none"';else if(o.fill.t==='lin'||o.fill.t==='rad')a+=' fill="url(#g'+o.id+')"';else a+=' fill="'+o.fill.c+'"';
+ if(o.stroke&&o.sw>0)a+=' stroke="'+o.stroke+'" stroke-width="'+o.sw+'" stroke-linejoin="round" stroke-linecap="round"'+(o.dash?' stroke-dasharray="'+o.dash+'"':'');if(o.op<100)a+=' opacity="'+o.op/100+'"';if(o.shadow||o.blur)a+=' filter="url(#f'+o.id+')"';
  if(o.rot){const b=vBB(o);a+=' transform="rotate('+o.rot+' '+(b.x+b.w/2)+' '+(b.y+b.h/2)+')"';}return a;}
-function vDef(o){if(!o.fill||o.fill.t!=='lin')return'';const r=(o.fill.ang||0)*Math.PI/180,c=Math.cos(r)/2,s=Math.sin(r)/2;return'<linearGradient id="g'+o.id+'" x1="'+(.5-c)+'" y1="'+(.5-s)+'" x2="'+(.5+c)+'" y2="'+(.5+s)+'"><stop offset="0" stop-color="'+o.fill.c+'"/><stop offset="1" stop-color="'+o.fill.c2+'"/></linearGradient>';}
+function vDef(o){let r='';if(o.fill&&o.fill.t==='lin'){const q=(o.fill.ang||0)*Math.PI/180,c=Math.cos(q)/2,s=Math.sin(q)/2;r+='<linearGradient id="g'+o.id+'" x1="'+(.5-c)+'" y1="'+(.5-s)+'" x2="'+(.5+c)+'" y2="'+(.5+s)+'"><stop offset="0" stop-color="'+o.fill.c+'"/><stop offset="1" stop-color="'+o.fill.c2+'"/></linearGradient>';}
+ else if(o.fill&&o.fill.t==='rad')r+='<radialGradient id="g'+o.id+'" cx=".5" cy=".5" r=".5"><stop offset="0" stop-color="'+o.fill.c+'"/><stop offset="1" stop-color="'+o.fill.c2+'"/></radialGradient>';
+ if(o.shadow||o.blur){const sh=o.shadow||0,bl=o.blur||0;r+='<filter id="f'+o.id+'" x="-40%" y="-40%" width="180%" height="180%">'+(bl?'<feGaussianBlur stdDeviation="'+bl+'"/>':'')+(sh?'<feDropShadow dx="'+sh*.5+'" dy="'+sh*.6+'" stdDeviation="'+sh*.5+'" flood-color="#000" flood-opacity=".55"/>':'')+'</filter>';}
+ return r;}
 function vObjSvg(o,ui){const a=vAttrs(o)+(ui?' data-id="'+o.id+'"':'');switch(o.t){
  case'rect':return'<rect x="'+o.x+'" y="'+o.y+'" width="'+o.w+'" height="'+o.h+'" rx="'+(o.rx||0)+'"'+a+'/>';
  case'ell':return'<ellipse cx="'+(o.x+o.w/2)+'" cy="'+(o.y+o.h/2)+'" rx="'+o.w/2+'" ry="'+o.h/2+'"'+a+'/>';
@@ -1544,9 +1559,9 @@ function vPanel(){const box=VC.pbox;if(!box)return;box.textContent='';const sel=
    h('div',{class:'sec'},h('h4',{text:'Organizar'}),h('div',{style:'display:flex;gap:3px;flex-wrap:wrap'},stBtn('Al frente',()=>vOrder('front')),stBtn('↑',()=>vOrder('up')),stBtn('↓',()=>vOrder('down')),stBtn('Al fondo',()=>vOrder('back')),stBtn('Duplicar',vDuplicate),stBtn('Eliminar',vDelete),o.t!=='path'&&o.t!=='text'&&o.t!=='img'?stBtn('→ Trazado',()=>{vPush();sel.forEach(vToPath);vRender();vPanel();},'','Convierte en trazado editable con puntos'):null,o.t==='path'?stBtn(o.closed?'Abrir trazado':'Cerrar trazado',()=>{vPush();o.closed=!o.closed;vRender();vPanel();}):null,o.t==='text'?stBtn('Editar texto',()=>vTextDialog(o.x,o.y,o)):null)));VC.pv=px;vPanelVals();}
  box.append(h('div',{class:'sec'},h('h4',{text:'Capas'}),ly));}
 function stRangeV(label,min,max,val,cb){return stRange(label,min,max,val,1,cb);}
-function vFillUI(o,isDefault){const f=o.fill,set=fn=>{if(isDefault){fn(VC);}else vSetProp(ob=>fn(ob));};const wrap=h('div',{});const type=h('select',{onchange:()=>{set(ob=>{const v=type.value;if(v==='none')ob.fill=null;else if(v==='solid')ob.fill={t:'solid',c:(ob.fill&&ob.fill.c)||'#7a6bff'};else ob.fill={t:'lin',c:(ob.fill&&ob.fill.c)||'#7a6bff',c2:(ob.fill&&ob.fill.c2)||'#ff5d9e',ang:(ob.fill&&ob.fill.ang)||0};});if(!isDefault)vPanel();else vPanel();}},h('option',{value:'none',text:'Sin relleno',selected:!f}),h('option',{value:'solid',text:'Color sólido',selected:f&&f.t==='solid'}),h('option',{value:'lin',text:'Degradado lineal',selected:f&&f.t==='lin'}));
+function vFillUI(o,isDefault){const f=o.fill,set=fn=>{if(isDefault){fn(VC);}else vSetProp(ob=>fn(ob));};const wrap=h('div',{});const type=h('select',{onchange:()=>{set(ob=>{const v=type.value;if(v==='none')ob.fill=null;else if(v==='solid')ob.fill={t:'solid',c:(ob.fill&&ob.fill.c)||'#7a6bff'};else ob.fill={t:v==='rad'?'rad':'lin',c:(ob.fill&&ob.fill.c)||'#7a6bff',c2:(ob.fill&&ob.fill.c2)||'#ff5d9e',ang:(ob.fill&&ob.fill.ang)||0};});if(!isDefault)vPanel();else vPanel();}},h('option',{value:'none',text:'Sin relleno',selected:!f}),h('option',{value:'solid',text:'Color sólido',selected:f&&f.t==='solid'}),h('option',{value:'lin',text:'Degradado lineal',selected:f&&f.t==='lin'}),h('option',{value:'rad',text:'Degradado radial',selected:f&&f.t==='rad'}));
  wrap.append(h('div',{style:'display:flex;gap:6px;align-items:center;margin-bottom:4px'},h('label',{text:'Relleno'}),type));
- if(f){wrap.append(h('div',{style:'display:flex;gap:6px;align-items:center'},h('input',{type:'color',value:f.c,oninput:e=>set(ob=>{if(ob.fill)ob.fill.c=e.target.value;})}),f.t==='lin'?h('input',{type:'color',value:f.c2,oninput:e=>set(ob=>{if(ob.fill&&ob.fill.t==='lin')ob.fill.c2=e.target.value;})}):null,f.t==='lin'?h('input',{type:'range',min:0,max:360,value:f.ang||0,style:'flex:1',oninput:e=>set(ob=>{if(ob.fill&&ob.fill.t==='lin')ob.fill.ang=+e.target.value;}),title:'Ángulo'}):null));}return wrap;}
+ if(f){wrap.append(h('div',{style:'display:flex;gap:6px;align-items:center'},h('input',{type:'color',value:f.c,oninput:e=>set(ob=>{if(ob.fill)ob.fill.c=e.target.value;})}),(f.t==='lin'||f.t==='rad')?h('input',{type:'color',value:f.c2,oninput:e=>set(ob=>{if(ob.fill&&(ob.fill.t==='lin'||ob.fill.t==='rad'))ob.fill.c2=e.target.value;})}):null,f.t==='lin'?h('input',{type:'range',min:0,max:360,value:f.ang||0,style:'flex:1',oninput:e=>set(ob=>{if(ob.fill&&ob.fill.t==='lin')ob.fill.ang=+e.target.value;}),title:'Ángulo'}):null));}return wrap;}
 function vStrokeUI(o,isDefault){const set=fn=>{if(isDefault)fn(VC);else vSetProp(ob=>fn(ob));};return h('div',{style:'display:flex;gap:6px;align-items:center;margin-top:6px'},h('label',{text:'Trazo'}),h('input',{type:'color',value:o.stroke||'#000000',oninput:e=>set(ob=>{ob.stroke=e.target.value;if(!ob.sw)ob.sw=2;})}),h('input',{type:'number',min:0,max:200,value:o.sw,style:'width:56px',onchange:e=>set(ob=>ob.sw=+e.target.value)}),stBtn('Ninguno',()=>{set(ob=>{ob.stroke=null;});vPanel();}));}
 /* archivo */
 async function vExportPng(scale,send){const svg=vSvgString(),img=await new Promise((res,rej)=>{const i=new Image();i.onload=()=>res(i);i.onerror=()=>rej(new Error('No se pudo rasterizar el SVG'));i.src='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(svg);});
@@ -1561,8 +1576,8 @@ function vecMount(el){VC.el=el;el.classList.add('sx');const tb=h('div',{class:'t
   stBtn('↶',vUndo,'','Deshacer'),stBtn('↷',vRedo,'','Rehacer'),stBtn('Ajustar',()=>{vFit();vRender();}),h('span',{style:'flex:1'}),stBtn('➜ PNG al proyecto',()=>vExportPng(1,true),'pri','Agrega el diseño como imagen del proyecto'),stBtn('➜ SVG al proyecto',vSendSvg,'','Agrega el SVG vectorial al proyecto'));
  VC.svg=document.createElementNS('http://www.w3.org/2000/svg','svg');VC.svg.setAttribute('style','position:absolute;inset:0;width:100%;height:100%;background:#2a2a2e');const cvw=h('div',{class:'cvw'});cvw.append(VC.svg);VC.pbox=h('div',{class:'side'});
  el.append(tb,h('div',{class:'sx col',style:'flex:1'},bar,h('div',{class:'sx',style:'flex:1'},cvw,VC.pbox)));vMouse();vTool('select');vPanel();new ResizeObserver(()=>{if(ST_CUR==='vec'){if(!VC.fitted&&cvw.clientWidth){vFit();VC.fitted=true;}vRender();}}).observe(cvw);}
-ST_MODS.vec={title:'Vectores',icon:'✒️',mount:vecMount,show:()=>setTimeout(()=>{if(!VC.fitted){vFit();VC.fitted=true;}vRender();},30)};
-/* ================= Estudio · MOTION GRAPHICS (tipo After Effects) ================= */
+ST_MODS.vec={title:'Trazo',icon:'✒️',mount:vecMount,show:()=>setTimeout(()=>{if(!VC.fitted){vFit();VC.fitted=true;}vRender();},30)};
+/* ================= Estudio · MOTION GRAPHICS ================= */
 const MO={w:1920,h:1080,fps:30,dur:6,bg:'#101018',layers:[],sel:null,t:0,playing:false,loop:true,pps:110,undo:[],redo:[],el:null,cv:null,ctx:null,images:{},raf:0,t0:0,drag:null,name:'animacion',exp:false};
 const MO_ANIM={common:[['px','Posición X',-4000,6000],['py','Posición Y',-4000,6000],['sc','Escala %',0,600],['rot','Rotación °',-720,720],['op','Opacidad %',0,100],['blur','Desenfoque',0,80],['shadow','Sombra %',0,100]],text:[['size','Tamaño',4,600],['track','Espaciado',-20,200],['reveal','Revelar %',0,100]],shape:[['w','Ancho',1,4000],['h','Alto',1,4000],['sw','Grosor trazo',0,100]]};
 const MO_DEF={px:960,py:540,sc:100,rot:0,op:100,blur:0,shadow:0,size:120,track:0,reveal:100,w:400,h:240,sw:0};
@@ -1692,8 +1707,8 @@ function motMount(el){MO.el=el;el.classList.add('sx');
  new ResizeObserver(()=>{moFit();moDraw();}).observe(MO.cvw);
  if(!MO.layers.length){const t=moLayer('text',{name:'Título',text:'Hola EdiTsar',p:{px:MO.w/2,py:MO.h/2,size:160}});MO_PRESETS['Pop (rebote de escala)'](t,0.2);MO.layers.push(t);MO.sel=t.id;}moAll();}
 function moDelete(){const L=moSel();if(!L)return;moPush();MO.layers=MO.layers.filter(l=>l.id!==L.id);MO.layers.forEach(l=>{if(l.parent===L.id)l.parent=null;});MO.sel=null;moAll();}
-ST_MODS.mot={title:'Motion',icon:'✨',mount:motMount,show:()=>setTimeout(()=>{moFit();moDraw();moTL();},40)};
-/* ================= Estudio · AUDIO (tipo Audition) ================= */
+ST_MODS.mot={title:'Kinema',icon:'✨',mount:motMount,show:()=>setTimeout(()=>{moFit();moDraw();moTL();},40)};
+/* ================= Estudio · AUDIO ================= */
 const AU={ctx:null,buf:null,name:'audio',sel:null,cur:0,vs:0,pps:100,undo:[],redo:[],clip:null,playing:false,src:null,loop:false,spec:false,mode:'wave',peaks:null,el:null,cv:null,tracks:[],tsel:null,tpps:60,tvs:0,tcur:0,tplaying:null,from:null,fromClip:null,mic:null,raf:0,t0:0,start0:0,msel:null};
 function auC(){if(!AU.ctx)AU.ctx=new (window.AudioContext||window.webkitAudioContext)();return AU.ctx;}
 const auDb=v=>v>1e-6?20*Math.log10(v):-120;
@@ -1855,7 +1870,156 @@ function audMount(el){AU.el=el;el.classList.add('sx');el.style.flexDirection='co
  new ResizeObserver(()=>{auSpCache=null;auDraw();mtDraw();}).observe(el);if(!AU.tracks.length)mtAddTrack('Voz'),mtAddTrack('Música');auDraw();}
 function audMode(m){AU.mode=m;AU.wp.style.display=m==='wave'?'flex':'none';AU.mp.style.display=m==='multi'?'flex':'none';$('#auTw',AU.el).classList.toggle('pri',m==='wave');$('#auTm',AU.el).classList.toggle('pri',m==='multi');if(m==='wave'){auStop();setTimeout(()=>auDraw(),30);}else{auStop();mtUI();setTimeout(()=>mtDraw(),30);}}
 document.head.append(h('style',{text:'.mtrk{padding:4px 6px;border-bottom:1px solid var(--ln);font-size:11px;display:flex;flex-direction:column;justify-content:center;gap:2px}'}));
-ST_MODS.aud={title:'Audio',icon:'🎚',mount:audMount,show:()=>setTimeout(()=>{auDraw();mtDraw();},40)};
+ST_MODS.aud={title:'Sónica',icon:'🎚',mount:audMount,show:()=>setTimeout(()=>{auDraw();mtDraw();},40)};
+/* ================= Suite: ayudas, asistente de Kinema y herramientas extra ================= */
+/* ---------- Ayuda por módulo ---------- */
+const SUITE_HELP={
+ ed:['EdiTsar · edición de video',['Arrastra tus videos, audios e imágenes al panel Proyecto (o usa Archivo → Importar).','Arrástralos a la línea de tiempo, corta con la tecla C o con la herramienta navaja y recorta arrastrando los bordes.','Con la barra superior saltas a Lienzo (fotos), Trazo (logos), Kinema (títulos animados) y Sónica (audio); lo que crees se agrega solo al panel Proyecto.','Archivo → «Comandos de Claude…» te da un texto para que Claude edite contigo, y «Exportar a otro editor» genera XML/EDL.']],
+ img:['Lienzo · fotos e imágenes',['Abre una foto (Archivo → Abrir) o crea un lienzo nuevo.','Elige una herramienta a la izquierda: 🖌 pincel, ◯ ▭ ➰ selecciones, 🪣 bote, T texto, ⛶ recortar. Atajos: B, M, L, G, T, C.','Menú «✨ Magia»: Auto-mejorar con un clic, curvas, temperatura, look cine, resplandor y quitar fondo por color.','Las capas están a la derecha: oculta, mezcla (Multiplicar, Trama…), usa máscaras (pintar negro oculta) y efectos de capa (sombra y contorno).','Cuando termines, «➜ Enviar al proyecto» la agrega a tu video.']],
+ vec:['Trazo · vectores y logos',['Dibuja con las formas de la izquierda o con la pluma ✒ (clic = punto recto, arrastrar = curva; Enter termina).','Selecciona un objeto para cambiar relleno (sólido, lineal, radial), trazo (rayas, puntos), sombra y desenfoque en el panel de la derecha.','«Efectos y más» tiene voltear, alinear a la cuadrícula y Patrón (rosetas y mosaicos con un clic).','Todo es vectorial: exporta SVG o PNG a 1×/2×/4× sin perder nitidez, o envíalo al proyecto.']],
+ mot:['Kinema · gráficos animados',['① Agrega algo: texto, formas o una imagen (panel de la izquierda).','② Haz clic en el elemento y toca un movimiento: se aplica y se reproduce solo. Puedes combinar varios.','③ O parte de una plantilla lista (tercio inferior, título, cuenta regresiva…): cambia el texto con doble clic.','Arrastra el elemento en la vista previa para moverlo; con la rueda del ratón cambias su tamaño. Las barras de abajo son el tiempo de cada capa: arrástralas para mover o recortar.','Cuando quede bien: «➜ Renderizar video» lo manda al proyecto (con fondo) o usa «PNG con transparencia» para un fotograma.']],
+ aud:['Sónica · estudio de audio',['Abre un audio o video (Archivo → Abrir) o graba con ⏺.','Arrastra sobre la onda para seleccionar una parte; los efectos se aplican a la selección (o a todo si no hay).','Panel «✨ Un clic»: Voz limpia, quitar zumbido, quitar silencios, teléfono, radio, cueva, robot, voz grave/aguda y nivelar volumen.','Pestaña Multipista: varias pistas (voz, música), fades y ganancia por clip; exporta la mezcla a WAV o envíala al proyecto.']]
+};
+function suiteHelp(tab){const k=tab||'ed',H=SUITE_HELP[k];if(!H)return;
+ modal('❓ '+H[0],h('div',{style:'max-width:460px;line-height:1.55'},h('ol',{style:'padding-left:20px;margin:0'},...H[1].map(t=>h('li',{style:'margin:6px 0',text:t})))),[h('button',{class:'pri',onclick:closeModal},'Entendido')]);}
+
+/* ---------- menú reutilizable ---------- */
+function sxMenu(label,items){const b=h('button',{class:'btn'},label+' ▾');b.onclick=e=>{const m=h('div',{style:'position:fixed;z-index:120;background:var(--p2);border:1px solid var(--ln);border-radius:6px;padding:4px;min-width:240px;max-height:75vh;overflow:auto',onclick:()=>m.remove()});const r=b.getBoundingClientRect();m.style.left=r.left+'px';m.style.top=r.bottom+'px';items.forEach(it=>{if(it==='-')m.append(h('hr',{style:'border:0;border-top:1px solid var(--ln)'}));else m.append(h('div',{class:'btn',style:'display:block;border:0;cursor:pointer',onclick:it[1]},it[0]));});document.body.append(m);setTimeout(()=>{const cl=()=>{m.remove();document.removeEventListener('mousedown',cl,true);};document.addEventListener('mousedown',cl,true);},0);e.stopPropagation();};return b;}
+
+/* =====================================================================
+   KINEMA (gráficos animados): panel guiado, más movimientos y plantillas
+   ===================================================================== */
+Object.assign(MO_PRESETS,{
+ 'Entrada con zoom':(L,s)=>{L.p.sc=[[s,260,'out'],[s+.7,100,'io']];L.p.op=[[s,0,'out'],[s+.4,100,'io']];},
+ 'Caer y rebotar':(L,s)=>{const y=moVal(L,'py',0);L.p.py=[[s,-250,'bounce'],[s+.9,y,'io']];L.p.op=[[s,0,'out'],[s+.1,100,'io']];},
+ 'Parpadeo':(L,s)=>{L.p.op=[[s,100,'hold'],[s+.25,15,'hold'],[s+.5,100,'hold'],[s+.75,15,'hold'],[s+1,100,'hold']];},
+ 'Temblor':(L,s)=>{const x=moVal(L,'px',0),a=[];for(let i=0;i<10;i++)a.push([s+i*.05,x+(i%2?16:-16)*(1-i/10),'lin']);a.push([s+.5,x,'io']);L.p.px=a;},
+ 'Girar sin parar':(L,s)=>{L.p.rot=[[s,0,'lin'],[Math.max(s+1,L.dur),360*Math.max(1,Math.round((L.dur-s)/3)),'lin']];},
+ 'Zoom lento (cine)':(L,s)=>{L.p.sc=[[s,100,'io'],[Math.max(s+1,L.dur),118,'io']];},
+ 'Salida (deslizar abajo)':(L,s)=>{const e=L.dur,y=moVal(L,'py',0);L.p.py=[[e-.6,y,'in'],[e,MO.h+300,'in']];},
+ 'Salida (girar y reducir)':(L,s)=>{const e=L.dur;L.p.sc=[[e-.6,100,'in'],[e,0,'in']];L.p.rot=[[e-.6,0,'in'],[e,120,'in']];}
+});
+const MO_GALLERY=[
+ ['Entradas',[['Aparecer (fundido)','🌫️','Aparecer'],['Subir y aparecer','⬆️','Subir'],['Deslizar desde la izquierda','➡️','Desde izq.'],['Deslizar desde la derecha','⬅️','Desde der.'],['Pop (rebote de escala)','💥','Pop'],['Elástico','🪀','Elástico'],['Girar entrando','🌀','Girar'],['Entrada con zoom','🔍','Zoom'],['Caer y rebotar','⚽','Caer'],['Máquina de escribir','⌨️','Escribir'],['Expandir espaciado','↔️','Expandir'],['Desenfoque a nítido','👓','Enfocar']]],
+ ['Movimiento continuo',[['Pulso (latido)','💓','Latido'],['Flotar (suave)','🎈','Flotar'],['Parpadeo','💡','Parpadeo'],['Temblor','📳','Temblor'],['Girar sin parar','🔄','Girar'],['Zoom lento (cine)','🎬','Zoom lento']]],
+ ['Salidas',[['Salida (fundido)','🌫️','Fundido'],['Salida (reducir)','🔽','Reducir'],['Salida (deslizar abajo)','⬇️','Bajar'],['Salida (girar y reducir)','🌪️','Girar']]]
+];
+const MO_TPLS=[['Tercio inferior','🏷️'],['Título central','🅰️'],['Cuenta regresiva (5→1)','⏱️'],['Logo reveal (círculo)','🔵'],['Llamada (caja con texto)','💬'],['Barra de progreso','📶'],['Título con subrayado','✍️'],['Cierre «Gracias»','🙏'],['Marco de cine (barras)','🎞️'],['Etiqueta «NUEVO»','🆕']];
+(function(){const orig=moTemplate;
+ moTemplate=function(name){
+  const W=MO.w,H=MO.h,mk=(t,o)=>{const L=moLayer(t,o);MO.layers.push(L);return L;};
+  if(name==='Título con subrayado'){moPush();const t=mk('text',{name:'Título',text:'Tu título aquí',p:{size:130,px:W/2,py:H/2-20}}),l=mk('rect',{name:'Subrayado',fill:'#7a6bff',rx:6,p:{w:0,h:10,px:W/2,py:H/2+90}}),s=mk('text',{name:'Subtítulo',text:'subtítulo o descripción',bold:false,color:'#d8d4ff',p:{size:46,px:W/2,py:H/2+160}});MO_PRESETS['Subir y aparecer'](t,0);l.p.w=[[.3,0,'out'],[1,640,'io']];MO_PRESETS['Aparecer (fundido)'](s,.8);MO.sel=t.id;moAll();return;}
+  if(name==='Cierre «Gracias»'){moPush();const t=mk('text',{name:'Gracias',text:'¡Gracias por ver!',p:{size:140,px:W/2,py:H/2-30}}),s=mk('text',{name:'Redes',text:'@tuusuario',bold:false,color:'#b9b3ff',p:{size:56,px:W/2,py:H/2+110}});MO_PRESETS['Pop (rebote de escala)'](t,0);MO_PRESETS['Subir y aparecer'](s,.7);MO.sel=t.id;moAll();return;}
+  if(name==='Marco de cine (barras)'){moPush();const a=mk('rect',{name:'Barra arriba',fill:'#000000',p:{w:W,h:H*.12,px:W/2,py:H*.06}}),b=mk('rect',{name:'Barra abajo',fill:'#000000',p:{w:W,h:H*.12,px:W/2,py:H*.94}});a.p.py=[[0,-H*.1,'out'],[.8,H*.06,'io']];b.p.py=[[0,H*1.1,'out'],[.8,H*.94,'io']];MO.sel=a.id;moAll();return;}
+  if(name==='Etiqueta «NUEVO»'){moPush();const b=mk('rect',{name:'Etiqueta',fill:'#ff3b5c',rx:30,p:{w:300,h:100,px:W*.82,py:H*.16}}),t=mk('text',{name:'NUEVO',text:'NUEVO',p:{size:60,px:W*.82,py:H*.16}});[b,t].forEach(l=>{l.p.sc=[[0,0,'back'],[.55,100,'io'],[1.3,106,'io'],[2,100,'io']];l.p.rot=[[0,-25,'out'],[.55,-6,'io']];});MO.sel=b.id;moAll();return;}
+  return orig(name);};
+ })();
+const moAnim=(name)=>{const L=moSel();if(!L)return toast('Primero toca un elemento en la vista previa o en la línea de tiempo',3500);moPreset(name);const t0=Math.max(0,L.start-.15);moPause();moSeek(t0);moPlay();};
+function moClearAnim(){const L=moSel();if(!L)return toast('Primero toca un elemento');moPush();for(const k in L.p)if(Array.isArray(L.p[k]))L.p[k]=L.p[k][0][1];moAll();toast('Animación quitada');}
+function moGalleryUI(){
+ const sec=(num,title,hint,...kids)=>h('div',{class:'sec'},h('h4',{text:num+' · '+title}),hint?h('p',{style:'margin:0 0 6px;color:var(--mu);font-size:11px',text:hint}):'',...kids);
+ const grid=(items,fn)=>h('div',{style:'display:grid;grid-template-columns:1fr 1fr;gap:4px'},...items.map(([id,ic,lb])=>h('button',{class:'btn',style:'text-align:left;padding:5px 7px',title:id,onclick:()=>fn(id)},ic+' '+lb)));
+ const add=h('div',{style:'display:grid;grid-template-columns:1fr 1fr;gap:4px'},
+  stBtn('🔤 Texto',()=>moAdd(moLayer('text',{p:{px:MO.w/2,py:MO.h/2,size:120}}))),stBtn('⬛ Rectángulo',()=>moAdd(moLayer('rect',{p:{px:MO.w/2,py:MO.h/2}}))),stBtn('⚪ Círculo',()=>moAdd(moLayer('ell',{p:{px:MO.w/2,py:MO.h/2}}))),stBtn('⭐ Estrella',()=>moAdd(moLayer('star',{p:{px:MO.w/2,py:MO.h/2}}))),
+  stBtn('🖼 Imagen…',async()=>{const f=(await stPickFile('image/*'))[0];if(f)moAddImage(f);}),stBtn('🖼 Del proyecto',()=>stAssetPicker('image','Imagen del proyecto',f=>moAddImage(f))));
+ const g=h('div',{class:'side',style:'width:268px;border-left:0;border-right:1px solid var(--ln)'},
+  h('div',{style:'display:flex;align-items:center;gap:6px'},h('b',{text:'Asistente Kinema',style:'flex:1'}),stBtn('❓',()=>suiteHelp('mot'),'','¿Cómo se usa?')),
+  sec('①','Agrega algo','Elige qué quieres animar.',add),
+  sec('②','Dale movimiento','Toca el elemento y luego un movimiento: se aplica y se reproduce solo.',...MO_GALLERY.flatMap(([t,items])=>[h('small',{text:t,style:'color:var(--mu);display:block;margin:6px 0 3px'}),grid(items,moAnim)]),h('div',{style:'margin-top:6px'},stBtn('🚫 Quitar animación',moClearAnim))),
+  sec('③','O empieza con una plantilla','Se agrega a tu composición lista para editar el texto.',grid(MO_TPLS.map(([n,i])=>[n,i,n.replace(/ \(.*\)/,'')]),n=>{moTemplate(n);moSeek(0);moPlay();})),
+  h('div',{class:'sec'},h('h4',{text:'Atajos'}),h('div',{style:'color:var(--mu);font-size:11px;line-height:1.5'},'Arrastra en la vista previa: mover.',h('br'),'Rueda del ratón sobre el elemento: tamaño.',h('br'),'Doble clic en un texto: editarlo.',h('br'),'Espacio: reproducir / pausar.',h('br'),'Supr: borrar la capa.')));
+ return g;}
+function moEditText(L){if(!L||L.type!=='text')return;const ta=h('textarea',{rows:3,style:'width:100%;font-size:16px'});ta.value=L.text;modal('Editar texto',h('div',{style:'min-width:340px'},ta),[h('button',{onclick:closeModal},'Cancelar'),h('button',{class:'pri',onclick:()=>{moPush();L.text=ta.value;closeModal();moAll();}},'Aceptar')]);setTimeout(()=>{ta.focus();ta.select();},50);}
+function moWelcome(){modal('✨ Bienvenido a Kinema',h('div',{style:'max-width:440px;line-height:1.55'},
+  h('p',{text:'Aquí haces títulos, rótulos y gráficos que se mueven, sin saber de animación. Son tres pasos:'}),
+  h('ol',{style:'padding-left:20px'},h('li',{html:'<b>Agrega</b> un texto o una forma (panel izquierdo, paso ①).'}),h('li',{html:'<b>Toca el elemento</b> y elige un movimiento (paso ②): se reproduce solo.'}),h('li',{html:'<b>Renderiza</b> con «➜ Renderizar video»: queda en tu proyecto.'})),
+  h('p',{style:'color:var(--mu)',text:'Ya dejé un título de ejemplo en pantalla. Cámbialo con doble clic, o prueba una plantilla del paso ③.'})),
+  [h('button',{onclick:()=>{closeModal();}},'Cerrar'),h('button',{class:'pri',onclick:()=>{closeModal();moPause();moSeek(0);moPlay();}},'▶ Ver el ejemplo')]);
+ try{localStorage.setItem('kinema_hi','1');}catch(e){}}
+(function(){const m=ST_MODS.mot,om=m.mount;
+ m.mount=function(el){om(el);const row=el.firstChild.children[1];row.insertBefore(moGalleryUI(),row.firstChild);
+  MO.cv.addEventListener('dblclick',e=>{const r=MO.cv.getBoundingClientRect(),k=MO.w/r.width,x=(e.clientX-r.left)*k,y=(e.clientY-r.top)*k;const hit=[...MO.layers].reverse().find(l=>{const b=moBounds(l,MO.t);return b&&l.vis&&MO.t>=l.start&&MO.t<l.start+l.dur&&x>=b.x&&x<=b.x+b.w&&y>=b.y&&y<=b.y+b.h;});if(hit&&hit.type==='text'){MO.sel=hit.id;moEditText(hit);}});
+  MO.cv.addEventListener('wheel',e=>{const L=moSel();if(!L||MO.playing)return;e.preventDefault();const v=moVal(L,'sc',MO.t),nv=Math.max(2,Math.min(600,v*(e.deltaY<0?1.06:.943)));moSetVal(L,'sc',Math.round(nv*10)/10);moInspVals();},{passive:false});
+  moSeek(1.2);};
+ m.first=()=>{if(window.__EDTEST)return;try{if(localStorage.getItem('kinema_hi'))return;}catch(e){}setTimeout(moWelcome,400);};
+})();
+
+/* =====================================================================
+   SÓNICA (audio): atajos de un clic
+   ===================================================================== */
+function auVoiceClean(){if(!AU.buf)return toast('Abre o graba un audio primero');
+ return auFx('Limpiando voz',(oc,s,d)=>{const hp=oc.createBiquadFilter();hp.type='highpass';hp.frequency.value=85;hp.Q.value=.7;const pk=oc.createBiquadFilter();pk.type='peaking';pk.frequency.value=3200;pk.Q.value=.9;pk.gain.value=3;const ls=oc.createBiquadFilter();ls.type='peaking';ls.frequency.value=250;ls.Q.value=.8;ls.gain.value=-2;const c=oc.createDynamicsCompressor();c.threshold.value=-26;c.ratio.value=3.5;c.attack.value=.01;c.release.value=.2;c.knee.value=8;s.connect(hp);hp.connect(ls);ls.connect(pk);pk.connect(c);c.connect(d);}).then(()=>auNormLufs(-16));}
+function auHum(f0){return auFx('Quitando zumbido',(oc,s,d)=>{let n=s;for(let k=1;k<=4;k++){const b=oc.createBiquadFilter();b.type='notch';b.frequency.value=f0*k;b.Q.value=35;n.connect(b);n=b;}n.connect(d);});}
+function auColor(kind){if(!AU.buf)return toast('Abre o graba un audio primero');
+ if(kind==='tel')return auFx('Efecto teléfono',(oc,s,d)=>{const a=oc.createBiquadFilter();a.type='highpass';a.frequency.value=450;const b=oc.createBiquadFilter();b.type='lowpass';b.frequency.value=3000;const g=oc.createGain();g.gain.value=1.6;s.connect(a);a.connect(b);b.connect(g);g.connect(d);});
+ if(kind==='radio')return auFx('Efecto radio',(oc,s,d)=>{const a=oc.createBiquadFilter();a.type='highpass';a.frequency.value=300;const b=oc.createBiquadFilter();b.type='lowpass';b.frequency.value=4800;const p=oc.createBiquadFilter();p.type='peaking';p.frequency.value=1800;p.gain.value=6;p.Q.value=1;s.connect(a);a.connect(b);b.connect(p);p.connect(d);});
+ if(kind==='cave'){const sr=AU.buf.sampleRate;return auFx('Efecto cueva',(oc,s,d)=>{const n=Math.round(3.5*sr),ir=oc.createBuffer(2,n,sr);for(let c=0;c<2;c++){const x=ir.getChannelData(c);let lp=0;for(let i=0;i<n;i++){const r=(Math.random()*2-1)*Math.pow(1-i/n,3);lp+=(r-lp)*.12;x[i]=lp;}}const cv=oc.createConvolver();cv.buffer=ir;const dry=oc.createGain(),wet=oc.createGain();dry.gain.value=.55;wet.gain.value=2.2;s.connect(dry);dry.connect(d);s.connect(cv);cv.connect(wet);wet.connect(d);},{tail:3.5});}
+ if(kind==='robot')return auFx('Efecto robot',(oc,s,d)=>{const g=oc.createGain();g.gain.value=0;const o=oc.createOscillator();o.frequency.value=55;o.type='sine';o.connect(g.gain);o.start();s.connect(g);g.connect(d);});
+ if(kind==='low')return auPitch(-4);if(kind==='high')return auPitch(4);}
+function auCutSilences(thDb,minS,pad){const b=AU.buf;if(!b)return toast('Abre o graba un audio primero');const [a,z]=auReg(),sr=b.sampleRate,th=Math.pow(10,thDb/20),win=Math.max(1,Math.round(sr*.01)),n=Math.ceil((z-a)/win),loud=new Array(n).fill(false);
+ for(let i=0;i<n;i++){let m=0;const s0=a+i*win,e0=Math.min(z,s0+win);for(let c=0;c<b.numberOfChannels;c++){const d=b.getChannelData(c);for(let j=s0;j<e0;j++){const v=Math.abs(d[j]);if(v>m)m=v;}}loud[i]=m>th;}
+ const keep=new Array(n).fill(true),minW=Math.round(minS/.01),padW=Math.round(pad/.01);let i=0;while(i<n){if(!loud[i]){let j=i;while(j<n&&!loud[j])j++;if(j-i>=minW)for(let k=i+padW;k<j-padW;k++)keep[k]=false;i=j;}else i++;}
+ let total=0;for(let k=0;k<n;k++)if(keep[k])total+=Math.min(z,a+(k+1)*win)-(a+k*win);if(total===z-a)return toast('No encontré silencios tan largos con esos valores');
+ auPush();const out=auMk(b.numberOfChannels,a+(b.length-z)+total,sr);for(let c=0;c<b.numberOfChannels;c++){const d=b.getChannelData(c),o=out.getChannelData(c);o.set(d.subarray(0,a),0);let p=a;for(let k=0;k<n;k++)if(keep[k]){const s0=a+k*win,e0=Math.min(z,s0+win);o.set(d.subarray(s0,e0),p);p+=e0-s0;}o.set(d.subarray(z),p);}
+ AU.buf=out;AU.sel=null;AU.peaks=null;auSet();toast('Quité '+((z-a-total)/sr).toFixed(1)+' s de silencio',3500);}
+(function(){const m=ST_MODS.aud,om=m.mount;
+ m.mount=function(el){om(el);const side=$('.side',el);if(!side)return;
+  const bt=(t,fn,tt)=>stBtn(t,()=>fn(),'',tt);
+  side.insertBefore(h('div',{class:'sec'},h('h4',{text:'✨ Un clic'}),
+   h('div',{style:'display:grid;grid-template-columns:1fr 1fr;gap:4px'},
+    bt('🎙 Voz limpia',auVoiceClean,'Quita graves molestos, aclara, comprime y nivela a −16 LUFS'),
+    bt('✂ Quitar silencios…',()=>auDlg('Quitar silencios',[['Umbral dB',-70,-20,1,-42],['Silencio mínimo s',.2,3,.1,.7],['Margen s',0,.5,.01,.15]],v=>auCutSilences(v[0],v[1],v[2]))),
+    bt('🔇 Zumbido 60 Hz',()=>auHum(60),'Red eléctrica de 60 Hz (Costa Rica, América)'),bt('🔇 Zumbido 50 Hz',()=>auHum(50)),
+    bt('📏 Nivelar −16 LUFS',()=>auNormLufs(-16),'Volumen estándar de podcast/YouTube'),bt('📞 Teléfono',()=>auColor('tel')),
+    bt('📻 Radio',()=>auColor('radio')),bt('🕳 Cueva',()=>auColor('cave')),bt('🤖 Robot',()=>auColor('robot')),bt('⬇ Voz grave',()=>auColor('low')),bt('⬆ Voz aguda',()=>auColor('high')),bt('❓ Ayuda',()=>suiteHelp('aud'))),
+   h('p',{style:'color:var(--mu);margin:6px 0 0;font-size:11px',text:'Se aplican a la selección (o a todo el audio). Ctrl+Z deshace.'})),side.firstChild);};
+})();
+
+/* =====================================================================
+   LIENZO (imágenes): menú Magia
+   ===================================================================== */
+const imLumP=(d,i)=>.299*d[i]+.587*d[i+1]+.114*d[i+2];
+function imCurveLut(pts){const n=pts.length,m=new Array(n).fill(0);for(let i=1;i<n-1;i++)m[i]=(pts[i+1][1]-pts[i-1][1])/(pts[i+1][0]-pts[i-1][0]);const lut=new Uint8ClampedArray(256);for(let v=0;v<256;v++){let i=0;while(i<n-2&&v>pts[i+1][0])i++;const x0=pts[i][0],x1=pts[i+1][0],y0=pts[i][1],y1=pts[i+1][1],t=(v-x0)/(x1-x0),h=x1-x0;const t2=t*t,t3=t2*t;lut[v]=(2*t3-3*t2+1)*y0+(t3-2*t2+t)*h*m[i]+(-2*t3+3*t2)*y1+(t3-t2)*h*m[i+1];}return lut;}
+Object.assign(IM_ADJ,{
+ auto:{t:'Auto-mejorar',p:[],f:(d)=>{const lo=[0,0,0],hi=[255,255,255],H=[new Uint32Array(256),new Uint32Array(256),new Uint32Array(256)];let n=0;for(let i=0;i<d.length;i+=4){if(d[i+3]<8)continue;H[0][d[i]]++;H[1][d[i+1]]++;H[2][d[i+2]]++;n++;}if(!n)return;
+  for(let c=0;c<3;c++){let s=0;for(let v=0;v<256;v++){s+=H[c][v];if(s>=n*.005){lo[c]=v;break;}}s=0;for(let v=255;v>=0;v--){s+=H[c][v];if(s>=n*.005){hi[c]=v;break;}}}
+  const lut=[0,1,2].map(c=>{const l=new Uint8ClampedArray(256),a=lo[c],b=Math.max(a+20,hi[c]);for(let v=0;v<256;v++){const x=(v-a)/(b-a);l[v]=Math.max(0,Math.min(1,x))*255*.8+v*.2;}return l;});
+  for(let i=0;i<d.length;i+=4){let r=lut[0][d[i]],g=lut[1][d[i+1]],b=lut[2][d[i+2]];const l=.299*r+.587*g+.114*b;r=l+(r-l)*1.1;g=l+(g-l)*1.1;b=l+(b-l)*1.1;d[i]=r;d[i+1]=g;d[i+2]=b;}}},
+ cur:{t:'Curvas (sombras · medios · luces)',p:[['Sombras',-100,100,0],['Medios',-100,100,0],['Luces',-100,100,0]],f:(d,[s,m,l])=>{const lut=imCurveLut([[0,0],[64,64+s*.6],[128,128+m*.6],[192,192+l*.6],[255,255]]);for(let i=0;i<d.length;i+=4){d[i]=lut[d[i]];d[i+1]=lut[d[i+1]];d[i+2]=lut[d[i+2]];}}},
+ tmp:{t:'Temperatura y tinte',p:[['Temperatura (frío ↔ cálido)',-100,100,0],['Tinte (verde ↔ magenta)',-100,100,0]],f:(d,[t,ti])=>{for(let i=0;i<d.length;i+=4){d[i]=imClamp(d[i]+t*.6+ti*.25);d[i+1]=imClamp(d[i+1]-ti*.5);d[i+2]=imClamp(d[i+2]-t*.6+ti*.25);}}},
+ cine:{t:'Look cine (azul y naranja)',p:[['Intensidad',0,100,60]],f:(d,[v])=>{const k=v/100,sc=x=>{x/=255;return(x+k*.7*x*(1-x)*(2*x-1))*255;};for(let i=0;i<d.length;i+=4){const l=imLumP(d,i)/255;const r=d[i]+k*(40*l-25*(1-l)),g=d[i+1]+k*(12*l+8*(1-l)),b=d[i+2]+k*(-30*l+30*(1-l));d[i]=imClamp(sc(imClamp(r)));d[i+1]=imClamp(sc(imClamp(g)));d[i+2]=imClamp(sc(imClamp(b)));}}},
+ glow:{t:'Resplandor',p:[['Radio',2,80,22],['Intensidad',0,100,55],['Umbral',30,95,60]],f:(d,[r,k,th],W,H)=>{const c=new Uint8ClampedArray(d.length);for(let i=0;i<d.length;i+=4){const l=imLumP(d,i)/255,w=l>th/100?(l-th/100)/(1-th/100):0;c[i]=d[i]*w;c[i+1]=d[i+1]*w;c[i+2]=d[i+2]*w;c[i+3]=255;}imBlur(c,W,H,r);const q=k/100*1.6;for(let i=0;i<d.length;i+=4){d[i]=255-(255-d[i])*(255-Math.min(255,c[i]*q))/255;d[i+1]=255-(255-d[i+1])*(255-Math.min(255,c[i+1]*q))/255;d[i+2]=255-(255-d[i+2])*(255-Math.min(255,c[i+2]*q))/255;}}},
+ rmbg:{t:'Quitar fondo (por color de los bordes)',p:[['Tolerancia',5,200,50],['Suavizado',0,60,14]],f:(d,[tol,soft],W,H)=>{const ref=[0,0,0];let n=0;for(const [cx,cy] of [[0,0],[W-5,0],[0,H-5],[W-5,H-5]])for(let y=Math.max(0,cy);y<Math.min(H,cy+5);y++)for(let x=Math.max(0,cx);x<Math.min(W,cx+5);x++){const i=(y*W+x)*4;ref[0]+=d[i];ref[1]+=d[i+1];ref[2]+=d[i+2];n++;}ref[0]/=n;ref[1]/=n;ref[2]/=n;
+  const dist=i=>Math.hypot(d[i]-ref[0],d[i+1]-ref[1],d[i+2]-ref[2]),seen=new Uint8Array(W*H),q=new Int32Array(W*H);let qh=0,qt=0;const push=p=>{if(!seen[p]){seen[p]=1;q[qt++]=p;}};
+  for(let x=0;x<W;x++){push(x);push((H-1)*W+x);}for(let y=0;y<H;y++){push(y*W);push(y*W+W-1);}
+  while(qh<qt){const p=q[qh++],i=p*4,dd=dist(i);if(dd>tol+soft)continue;d[i+3]=dd<=tol?0:d[i+3]*((dd-tol)/Math.max(1,soft));const x=p%W,y=(p-x)/W;if(x>0)push(p-1);if(x<W-1)push(p+1);if(y>0)push(p-W);if(y<H-1)push(p+W);}}}
+});
+function imDropShadow(){const L=imAct();if(!L)return;imPush();const N=imNewLayer('Sombra de '+L.name),g=N.c.getContext('2d'),o=Math.max(IM.w,IM.h)*2;g.shadowColor='rgba(0,0,0,.6)';g.shadowBlur=Math.round(Math.max(IM.w,IM.h)*.012);g.shadowOffsetX=o+Math.round(IM.w*.008);g.shadowOffsetY=Math.round(IM.h*.012);g.drawImage(L.c,-o,0);IM.layers.splice(IM.layers.indexOf(L),0,N);imLayersUI();imDraw();}
+function imOutline(){const L=imAct();if(!L)return;const w=h('input',{type:'number',value:Math.max(4,Math.round(IM.w*.006)),min:1,max:200,style:'width:70px'}),col=h('input',{type:'color',value:'#ffffff'});modal('Contorno de la capa',h('div',{},'Grosor ',w,' px  Color ',col),[h('button',{onclick:closeModal},'Cancelar'),h('button',{class:'pri',onclick:()=>{closeModal();imPush();const r=Math.max(1,+w.value),N=imNewLayer('Contorno de '+L.name),g=N.c.getContext('2d'),t=imMk(IM.w,IM.h),tg=t.getContext('2d');tg.drawImage(L.c,0,0);tg.globalCompositeOperation='source-in';tg.fillStyle=col.value;tg.fillRect(0,0,IM.w,IM.h);for(let a=0;a<48;a++){const an=a/48*Math.PI*2;g.drawImage(t,Math.cos(an)*r,Math.sin(an)*r);}IM.layers.splice(IM.layers.indexOf(L),0,N);imLayersUI();imDraw();}},'Aplicar')]);}
+function imStrokeSel(){if(!IM.sel)return toast('Primero haz una selección');const L=imAct(),g=L.c.getContext('2d');imPush();g.save();imSelPath(g);g.lineWidth=Math.max(1,IM.size/4);g.strokeStyle=IM.color;g.stroke();g.restore();imDraw();}
+(function(){const m=ST_MODS.img,om=m.mount;
+ m.mount=function(el){om(el);const bar=$('.bar',el);const sep=bar.querySelector('.sep');const mg=sxMenu('✨ Magia',[['Auto-mejorar (un clic)',()=>imAdjDialog('auto')],['Curvas…',()=>imAdjDialog('cur')],['Temperatura y tinte…',()=>imAdjDialog('tmp')],['Look cine (azul y naranja)…',()=>imAdjDialog('cine')],['Resplandor…',()=>imAdjDialog('glow')],'-',['Quitar fondo por color…',()=>imAdjDialog('rmbg')],'-',['Sombra paralela de la capa',imDropShadow],['Contorno de la capa…',imOutline],['Trazar el borde de la selección',imStrokeSel],'-',['❓ ¿Cómo se usa Lienzo?',()=>suiteHelp('img')]]);bar.insertBefore(mg,sep);};
+})();
+
+/* =====================================================================
+   TRAZO (vectores): efectos, voltear, cuadrícula y patrones
+   ===================================================================== */
+function vFlip(axis){const sel=vSel();if(!sel.length)return;vPush();const U=vUnion(sel),cx=U.x+U.w/2,cy=U.y+U.h/2;for(const o of sel){const b=vBB(o),ox=b.x+b.w/2,oy=b.y+b.h/2;if(o.t==='path'){for(const p of o.pts){if(axis==='h'){p.x=2*cx-p.x;p.ix=-(p.ix||0);p.ox=-(p.ox||0);}else{p.y=2*cy-p.y;p.iy=-(p.iy||0);p.oy=-(p.oy||0);}}}else{if(axis==='h')vMoveObj(o,2*cx-ox-ox,0);else vMoveObj(o,0,2*cy-oy-oy);}o.rot=-(o.rot||0);}vRender();vPanel();}
+function vSnapGrid(){const sel=vSel();if(!sel.length)return;const g=VC.grid||20;vPush();for(const o of sel){const b=vBB(o);vMoveObj(o,Math.round(b.x/g)*g-b.x,Math.round(b.y/g)*g-b.y);}vRender();vPanel();}
+function vPatternDlg(){const sel=vSel();if(!sel.length)return toast('Primero selecciona un objeto');
+ const kind=h('select',{},h('option',{value:'rad',text:'Radial (rosetas, mandalas)'}),h('option',{value:'grid',text:'Cuadrícula (mosaico)'})),n=h('input',{type:'number',value:8,min:2,max:60,style:'width:60px'}),cols=h('input',{type:'number',value:4,min:1,max:30,style:'width:50px'}),rows=h('input',{type:'number',value:3,min:1,max:30,style:'width:50px'}),gap=h('input',{type:'number',value:20,style:'width:60px'});
+ modal('Patrón',h('div',{style:'min-width:330px;display:grid;gap:8px'},h('div',{},kind),h('div',{},'Radial · copias ',n,' alrededor del centro del lienzo'),h('div',{},'Cuadrícula · columnas ',cols,' filas ',rows,' separación ',gap)),[h('button',{onclick:closeModal},'Cancelar'),h('button',{class:'pri',onclick:()=>{closeModal();vPush();const add=[];
+  if(kind.value==='rad'){const N=Math.max(2,+n.value),px=VC.w/2,py=VC.h/2;for(let i=1;i<N;i++){const an=i*2*Math.PI/N,ca=Math.cos(an),sa=Math.sin(an);for(const o of sel){const c=JSON.parse(JSON.stringify(o));c.id=uid();c.name=o.name+' ·'+i;const b=vBB(c),cx=b.x+b.w/2-px,cy=b.y+b.h/2-py;vMoveObj(c,px+cx*ca-cy*sa-(b.x+b.w/2),py+cx*sa+cy*ca-(b.y+b.h/2));c.rot=((c.rot||0)+i*360/N)%360;add.push(c);}}}
+  else{const U=vUnion(sel),C=Math.max(1,+cols.value),R=Math.max(1,+rows.value),g=+gap.value||0;for(let j=0;j<R;j++)for(let i=0;i<C;i++){if(!i&&!j)continue;for(const o of sel){const c=JSON.parse(JSON.stringify(o));c.id=uid();c.name=o.name+' ·'+i+'-'+j;vMoveObj(c,i*(U.w+g),j*(U.h+g));add.push(c);}}}
+  VC.objs.push(...add);VC.sel=[...sel.map(o=>o.id),...add.map(o=>o.id)];vRender();vPanel();toast(add.length+' copias creadas');}},'Crear')]);}
+(function(){const _p=vPanel;vPanel=function(){_p();const box=VC.pbox;if(!box)return;const sel=vSel(),o=sel[0];const sec=h('div',{class:'sec'},h('h4',{text:'Efectos y más'}));
+  if(o){const dash=h('select',{onchange:()=>vSetProp(ob=>{ob.dash=dash.value||null;if(dash.value&&(!ob.stroke||!ob.sw)){ob.stroke=ob.stroke||'#1b1b1b';ob.sw=ob.sw||4;}})},...[['','Línea continua'],['14 10','Rayas'],['1 12','Puntos'],['28 10 4 10','Raya y punto']].map(([v,t])=>h('option',{value:v,text:t,selected:(o.dash||'')===v})));
+   sec.append(h('div',{style:'display:flex;gap:6px;align-items:center;margin-bottom:4px'},h('label',{text:'Línea'}),dash),stRangeV('Sombra',0,40,o.shadow||0,v=>vSetProp(ob=>ob.shadow=v||0)),stRangeV('Desenfoque',0,30,o.blur||0,v=>vSetProp(ob=>ob.blur=v||0)),
+    h('div',{style:'display:flex;gap:4px;flex-wrap:wrap;margin-top:4px'},stBtn('⇋ Voltear H',()=>vFlip('h')),stBtn('⇅ Voltear V',()=>vFlip('v')),stBtn('▦ A la cuadrícula',vSnapGrid,'','Alinea a la cuadrícula'),stBtn('✳ Patrón…',vPatternDlg,'','Rosetas y mosaicos')));}
+  sec.append(h('div',{style:'display:flex;gap:6px;align-items:center;margin-top:6px'},h('label',{text:'Cuadrícula'}),h('input',{type:'checkbox',checked:!!VC.gridOn,onchange:e=>{VC.gridOn=e.target.checked;vRender();}}),h('input',{type:'number',min:4,max:400,value:VC.grid||20,style:'width:56px',onchange:e=>{VC.grid=Math.max(4,+e.target.value||20);vRender();}}),h('small',{text:'px',style:'color:var(--mu)'}),stBtn('❓',()=>suiteHelp('vec'))));
+  box.insertBefore(sec,box.lastChild);};
+ const _r=vRenderNow;vRenderNow=function(){_r();if(!VC.gridOn||!VC.svg)return;const ov=VC.svg.querySelector('#vov');if(!ov)return;const g=VC.grid||20,z=1/VC.z;if(VC.w/g>400||VC.h/g>400)return;let d='';for(let x=g;x<VC.w;x+=g)d+='M'+x+' 0V'+VC.h;for(let y=g;y<VC.h;y+=g)d+='M0 '+y+'H'+VC.w;const p=document.createElementNS('http://www.w3.org/2000/svg','path');p.setAttribute('d',d);p.setAttribute('stroke','#7a6bff');p.setAttribute('stroke-opacity','.25');p.setAttribute('stroke-width',z);p.setAttribute('fill','none');ov.parentNode.insertBefore(p,ov);};
+})();
 /* ================= EdiTsar · archivos, exportación, nube, teclado ================= */
 function modal(title,body,btns,wide){closeModal();const m=h('div',{class:'modal',id:'mdl'},h('div',{class:'md',style:wide?'min-width:560px':''},h('h2',{text:title}),body,btns?h('div',{class:'btns'},...btns):null));m.addEventListener('mousedown',e=>{if(e.target===m&&!EXP.on)closeModal();});document.body.append(m);return m;}
 function closeModal(){const m=$('#mdl');if(m)m.remove();}
@@ -1884,7 +2048,7 @@ function exportEDL(){const fps=P.fps,off=3600,L=['TITLE: '+P.name,'FCM: NON-DROP
  for(const c of evs){const A=P.assets[c.a];const reel=(A.name.replace(/\.[^.]+$/,'').replace(/[^A-Za-z0-9]/g,'').toUpperCase()+'AX').slice(0,8).padEnd(8);const type=isV(c.tr)?'V':'A';
   const si=c.i,so=c.i+c.d*c.sp;L.push(String(n++).padStart(3,'0')+'  '+reel+' '+(type==='V'?'V    ':'AA   ')+' C        '+z(si)+' '+z(so)+' '+z(off+c.s)+' '+z(off+c.s+c.d));
   L.push('* FROM CLIP NAME: '+A.name);if(c.sp!==1)L.push('M2   '+reel+' '+(c.sp*fps).toFixed(1)+'                '+z(si));L.push('* TRACK: '+c.tr);L.push('');}
- download(safeName()+'.edl',new Blob([L.join('\n')],{type:'text/plain'}));toast('EDL CMX 3600 exportada (reimpórtala en Premiere con los mismos medios)');}
+ download(safeName()+'.edl',new Blob([L.join('\n')],{type:'text/plain'}));toast('EDL CMX 3600 exportada (reimpórtala en tu otro editor con los mismos medios)');}
 let expRec=null;
 function exportDialog(){if(!projEnd())return toast('La secuencia está vacía');
  const mimes=['video/mp4;codecs=avc1.640028,mp4a.40.2','video/mp4','video/webm;codecs=vp9,opus','video/webm;codecs=vp8,opus','video/webm'].filter(m=>window.MediaRecorder&&MediaRecorder.isTypeSupported(m));
@@ -1894,7 +2058,7 @@ function exportDialog(){if(!projEnd())return toast('La secuencia está vacía');
   rng=h('select',{},h('option',{value:'all'},'Secuencia completa'),h('option',{value:'io',disabled:ST.tin==null&&ST.tout==null},'Entre marcas de entrada/salida')),
   br=h('select',{},h('option',{value:8},'Alta · 8 Mbps'),h('option',{value:16},'Muy alta · 16 Mbps'),h('option',{value:4},'Media · 4 Mbps'));
  modal('Exportar video',h('div',{},h('div',{class:'f'},h('label',{},'Formato'),sel),h('div',{class:'f'},h('label',{},'Resolución'),res),h('div',{class:'f'},h('label',{},'Rango'),rng),h('div',{class:'f'},h('label',{},'Calidad'),br),
-  h('p',{text:'La exportación se hace en tiempo real desde tu navegador y dura lo mismo que la secuencia. Mantén esta pestaña visible. Para entrega con códecs profesionales usa la EDL o el proyecto en Premiere.'})),
+  h('p',{text:'La exportación se hace en tiempo real desde tu navegador y dura lo mismo que la secuencia. Mantén esta pestaña visible. Para entrega con códecs profesionales usa la EDL o el XML para terminar en otro editor.'})),
   [h('button',{onclick:closeModal},'Cancelar'),h('button',{class:'pri',onclick:()=>{const o={mime:sel.value,scale:+res.value,range:rng.value,mbps:+br.value};closeModal();exportVideo(o);}},'Exportar')]);}
 async function exportVideo(o){pause();ensureAC();await AC.resume();
  const a=o.range==='io'?(ST.tin||0):0,b=o.range==='io'?(ST.tout==null?projEnd():ST.tout):projEnd();if(b-a<.1)return toast('Rango vacío');
@@ -1965,7 +2129,7 @@ async function collabDialog(){await loadFirebase();const link=location.origin.st
 /* ---------- menús ---------- */
 function buildMenus(){
  const mk=(id,items)=>{const dd=$(id);dd.innerHTML='';items.forEach(it=>{if(it==='-'){dd.append(h('hr'));return;}dd.append(h('button',{onclick:()=>{$$('.menu').forEach(m=>m.classList.remove('open'));it[1]();}},h('span',{text:it[0]}),h('kbd',{text:it[2]||''})));});};
- mk('#ddFile',[['Proyectos (menú principal)…',homeShow],['Nuevo proyecto…',newProjectDialog],'-',['Carpeta de medios…',pickFolder],['Importar archivos…',pickFiles],'-',['Exportar a Premiere (XML)…',premiereDialog],['Comandos de Claude…',claudeDialog],'-',...studioMenu(),'-',['Herramientas de audio (sincronizar, silencios)…',audioToolsDialog],['Guardar copia (.editsar)',saveCopy,'Ctrl S'],['Importar proyecto (.editsar)…',importProjectFile],'-',['Exportar video…',exportDialog,'Ctrl E'],['Exportar fotograma actual (PNG)',exportFrame],['Exportar EDL (CMX 3600)',exportEDL],'-',['Ajustes del proyecto…',projectSettings]]);
+ mk('#ddFile',[['Proyectos (menú principal)…',homeShow],['Nuevo proyecto…',newProjectDialog],'-',['Carpeta de medios…',pickFolder],['Importar archivos…',pickFiles],'-',['Exportar a otro editor (XML / EDL)…',premiereDialog],['Comandos de Claude…',claudeDialog],'-',...studioMenu(),'-',['Herramientas de audio (sincronizar, silencios)…',audioToolsDialog],['Guardar copia (.editsar)',saveCopy,'Ctrl S'],['Importar proyecto (.editsar)…',importProjectFile],'-',['Exportar video…',exportDialog,'Ctrl E'],['Exportar fotograma actual (PNG)',exportFrame],['Exportar EDL (CMX 3600)',exportEDL],'-',['Ajustes del proyecto…',projectSettings]]);
  mk('#ddEdit',[['Deshacer',undo,'Ctrl Z'],['Rehacer',redo,'Ctrl ⇧Z'],'-',['Copiar',copySel,'Ctrl C'],['Pegar en el cabezal',pasteClips,'Ctrl V'],['Eliminar',()=>doDelete(false),'Supr'],['Eliminar y cerrar hueco',()=>doDelete(true),'⇧ Supr'],'-',['Seleccionar todo',selectAll,'Ctrl A'],['Dividir en el cabezal',splitAtPlayhead,'Ctrl K'],'-',['Vincular selección',linkSel],['Desvincular audio y video',unlinkSel],['Extraer audio a pista de destino',extractAudio]]);
  mk('#ddSeq',[['Añadir marcador',addMarker,'M'],['Añadir comentario…',()=>{showProjTab('cmt');}],'-',['Marcar entrada de secuencia',()=>{ST.tin=ST.t;renderTL();},'I'],['Marcar salida de secuencia',()=>{ST.tout=ST.t;renderTL();},'O'],['Quitar marcas',()=>{ST.tin=ST.tout=null;renderTL();}],'-',['Añadir pista de video',()=>addTrack('V')],['Añadir pista de audio',()=>addTrack('A')],['Quitar pistas vacías',removeEmptyTracks],'-',['Ir a la siguiente edición',nextEdit,'↓'],['Ir a la edición anterior',prevEdit,'↑']]);
  $$('.menu>button').forEach(b=>b.addEventListener('click',e=>{const m=b.parentNode,was=m.classList.contains('open');$$('.menu').forEach(x=>x.classList.remove('open'));if(!was)m.classList.add('open');e.stopPropagation();}));
@@ -2033,7 +2197,7 @@ function init(){
  gateShow('Verificando sesión…');loadFirebase().then(ok=>{if(!ok)gateShow('No se pudo conectar con el inicio de sesión (sin internet o bloqueado).',true);if(hashCloud)cloudOpen(hashCloud[1]);});
  window.addEventListener('hashchange',()=>{});
 }
-window.__E={get P(){return P;},ST,MEDIA,EL,ROOT,edit,undo,redo,addAssetAt,addTitle,splitAtPlayhead,applyEffect,mergeRemote,renderTL,drawProgram,seek,play,pause,pickFolder,scanFileList,afterRoot,rootReset,importEntries,projEnd,exportVideo,exportDone,exportEDL,setFx,resolveOverlaps,deleteClips,fxv,SY,CLIENT,syncSend,openSource,srcInsert,newProject,openProject,saveLocal,linkAll,splitClip,get EXP(){return EXP;},get err(){return window.__lastErr;},setSpeed,applyEffectFn:applyEffect,clipsArr,tcStr,setTrans,PT,studioOpen,IM,VC,MO,AU,AU_FX,auSet,auMk,auFx,auGain,auNormalize,auFade,auStretch,auPitch,auResample,auNoiseProfile,auDenoise,auLoudness,auWav,auDelete,auCopy,auPaste,auCrop,auSelAll,mtAddTrack,mtAddClip,mtMix,mtSplit,auPush,moRender,moRenderVideo,moTemplate,moPreset,moVal,vSvgString,vExportPng,vSendSvg,vToPath,imNewDoc,imApply,imAdjDialog,imExport,imPush,buildPremiereXML,buildEDL,apiRun,apiState,claudeDialog,audioToolsDialog,apiSyncAudio,apiCutSilences,apiSilences,apiContactSheet,premiereDialog,proxyDialog,parseCube,homeShow,duplicateLocal,renameLocal,deleteLocal,removeAssets,decodeCheck,makeProxies,ffInit,useProxy,findProxy,buildRT,get RT(){return RT;},lutApply,TRNAMES};
+window.__E={get P(){return P;},ST,MEDIA,EL,ROOT,edit,undo,redo,addAssetAt,addTitle,splitAtPlayhead,applyEffect,mergeRemote,renderTL,drawProgram,seek,play,pause,pickFolder,scanFileList,afterRoot,rootReset,importEntries,projEnd,exportVideo,exportDone,exportEDL,setFx,resolveOverlaps,deleteClips,fxv,SY,CLIENT,syncSend,openSource,srcInsert,newProject,openProject,saveLocal,linkAll,splitClip,get EXP(){return EXP;},get err(){return window.__lastErr;},setSpeed,applyEffectFn:applyEffect,clipsArr,tcStr,setTrans,PT,studioOpen,IM,VC,MO,AU,AU_FX,auSet,auMk,auFx,auGain,auNormalize,auFade,auStretch,auPitch,auResample,auNoiseProfile,auDenoise,auLoudness,auWav,auDelete,auCopy,auPaste,auCrop,auSelAll,mtAddTrack,mtAddClip,mtMix,mtSplit,auPush,moRender,moRenderVideo,moTemplate,moPreset,moVal,vSvgString,vExportPng,vSendSvg,vToPath,imNewDoc,imApply,imAdjDialog,imExport,imPush,buildPremiereXML,buildEDL,suiteHelp,moBounds,moAnim,moTemplate,moClearAnim,moEditText,auCutSilences,auVoiceClean,auHum,auColor,imApply,IM_ADJ,vFlip,vSnapGrid,vFlip,vPatternDlg,apiRun,apiState,claudeDialog,audioToolsDialog,apiSyncAudio,apiCutSilences,apiSilences,apiContactSheet,premiereDialog,proxyDialog,parseCube,homeShow,duplicateLocal,renameLocal,deleteLocal,removeAssets,decodeCheck,makeProxies,ffInit,useProxy,findProxy,buildRT,get RT(){return RT;},lutApply,TRNAMES};
 init();
 })();
 </script></body></html>
