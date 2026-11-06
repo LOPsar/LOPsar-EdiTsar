@@ -409,22 +409,33 @@ async function checkPlayable(a){const m=MEDIA[a.id];if(!m||!m.url||m.chk||a.kind
  if(typeof renderProject==='function')renderProject();if(typeof renderTL==='function')renderTL();}
 /* ---------- conversor a proxy H.264 (ffmpeg.wasm, todo en tu equipo) ---------- */
 const FFV={lib:'https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.15/dist/umd/',core:'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.10/dist/umd/'};
-let FF=null,FFcb=null,FFstop=false;
+let FF=null,FFcb=null,FFstop=false,PXS=(()=>{try{return +localStorage.getItem('ed.psz')||960;}catch(e){return 960;}})();
 function ffScript(src){return new Promise((res,rej)=>{const s=document.createElement('script');s.src=src;s.onload=res;s.onerror=()=>rej(new Error('No se pudo descargar el conversor (¿sin internet?)'));document.head.append(s);});}
 async function ffBlob(url,type){const r=await fetch(url);if(!r.ok)throw new Error('Error '+r.status+' al descargar '+url.split('/').pop());return URL.createObjectURL(new Blob([await r.arrayBuffer()],{type}));}
+const FFW=`let core=null;
+onmessage=async e=>{const m=e.data;try{let out,tr=[];
+ if(m.t==='load'){importScripts(m.core);core=await createFFmpegCore({mainScriptUrlOrBlob:m.core+'#'+btoa(JSON.stringify({wasmURL:m.wasm,workerURL:''})),locateFile:p=>/\\.wasm$/.test(p)?m.wasm:p});
+  if(core.setLogger)core.setLogger(()=>{});if(core.setProgress)core.setProgress(p=>postMessage({t:'prog',p:p&&p.progress}));}
+ else if(m.t==='mkdir'){try{core.FS.mkdir(m.path);}catch(x){}}
+ else if(m.t==='mount'){try{core.FS.mkdir(m.path);}catch(x){}core.FS.mount(core.FS.filesystems.WORKERFS,{files:[m.file]},m.path);}
+ else if(m.t==='unmount'){core.FS.unmount(m.path);try{core.FS.rmdir(m.path);}catch(x){}}
+ else if(m.t==='exec'){if(core.setTimeout)core.setTimeout(-1);core.exec(...m.args);out=core.ret;if(core.reset)core.reset();}
+ else if(m.t==='read'){out=core.FS.readFile(m.path);tr=[out.buffer];}
+ else if(m.t==='del'){try{core.FS.unlink(m.path);}catch(x){}}
+ postMessage({t:'ok',id:m.id,out},tr);}catch(x){postMessage({t:'err',id:m.id,msg:String((x&&x.message)||x)});}};`;
 async function ffInit(){if(FF)return FF;const V=window.__FFV||FFV;
- await ffScript(V.lib+'ffmpeg.js');if(!window.FFmpegWASM)throw new Error('El conversor no se pudo iniciar');
- let wk='814.ffmpeg.js';try{const tx=await(await fetch(V.lib+'ffmpeg.js')).text();const m=/\.e\((\d+)\)/.exec(tx);if(m)wk=m[1]+'.ffmpeg.js';}catch(e){}
- const ff=new FFmpegWASM.FFmpeg();ff.on('progress',e=>{if(FFcb)FFcb(e.progress);});
- const cw=await ffBlob(V.lib+wk,'text/javascript'),cu=await ffBlob(V.core+'ffmpeg-core.js','text/javascript'),wu=await ffBlob(V.core+'ffmpeg-core.wasm','application/wasm');
- /* el worker UMD debe ser clásico (importScripts); como módulo falla con «Cannot find module 'blob:…'» */
- const OW=window.Worker;window.Worker=function(u,o){o=Object.assign({},o||{});delete o.type;return new OW(u,o);};window.Worker.prototype=OW.prototype;
- try{await ff.load({classWorkerURL:cw,coreURL:cu,wasmURL:wu});}finally{window.Worker=OW;}
- try{await ff.createDir('/src');}catch(e){}
- FF=ff;return ff;}
+ const core=await ffBlob(V.core+'ffmpeg-core.js','text/javascript'),wasm=await ffBlob(V.core+'ffmpeg-core.wasm','application/wasm');
+ const wurl=URL.createObjectURL(new Blob([FFW],{type:'text/javascript'}));const w=new Worker(wurl);let seq=0;const pend={};
+ w.onmessage=e=>{const m=e.data;if(m.t==='prog'){if(FFcb&&typeof m.p==='number')FFcb(Math.max(0,Math.min(1,m.p)));return;}const p=pend[m.id];if(!p)return;delete pend[m.id];m.t==='err'?p.rej(new Error(m.msg)):p.res(m.out);};
+ w.onerror=e=>{const er=new Error('Falló el motor del conversor: '+(e.message||'error desconocido'));for(const k in pend){pend[k].rej(er);delete pend[k];}};
+ const call=(msg,tr)=>new Promise((res,rej)=>{const id=++seq;pend[id]=({res,rej});w.postMessage(Object.assign({id},msg),tr||[]);});
+ const ff={call,terminate(){try{w.terminate();}catch(e){}},createDir:p=>call({t:'mkdir',path:p}),
+  async mount(ty,o,p){if(window.__FFV)window.__mounted=o.files[0].name;return call({t:'mount',file:o.files[0],path:p});},unmount:p=>call({t:'unmount',path:p}),
+  async exec(a){if(window.__FFV)window.__ffargs=a.join(' ');return call({t:'exec',args:a});},readFile:p=>call({t:'read',path:p}),deleteFile:p=>call({t:'del',path:p})};
+ await call({t:'load',core,wasm});FF=ff;return ff;}
 async function ffConvert(a,onP){const m=MEDIA[a.id];if(!m||!m.file)throw new Error('archivo no disponible');const ff=await ffInit();FFcb=onP;const nm=m.file.name;
  await ff.mount('WORKERFS',{files:[m.file]},'/src');
- try{const code=await ff.exec(['-i','/src/'+nm,'-map','0:v:0','-map','0:a:0?','-vf',"scale='min(960,iw)':-2,format=yuv420p",'-c:v','libx264','-preset','ultrafast','-crf','24','-g','12','-c:a','aac','-b:a','128k','-ac','2','-movflags','+faststart','/out.mp4']);
+ try{const code=await ff.exec(['-i','/src/'+nm,'-map','0:v:0','-map','0:a:0?','-vf',"scale='min("+PXS+",iw)':-2,format=yuv420p",'-c:v','libx264','-preset','ultrafast','-crf','24','-g','12','-c:a','aac','-b:a','128k','-ac','2','-movflags','+faststart','/out.mp4']);
   if(code!==0)throw new Error('ffmpeg terminó con el código '+code);
   const data=await ff.readFile('/out.mp4');try{await ff.deleteFile('/out.mp4');}catch(e){}return data;}
  finally{FFcb=null;try{await ff.unmount('/src');}catch(e){}}}
@@ -833,8 +844,8 @@ function renderProject(){const b=$('#projBody');if(!b)return;const keep=b.scroll
  const miss=missingCount(),n=Object.keys(P.assets).length;
  const tb=h('div',{style:'display:flex;gap:5px;flex-wrap:wrap;margin-bottom:6px'},h('button',{class:'pri',onclick:pickFolder,title:'Elige la carpeta raíz de tus medios (se leen en tu equipo, nunca se suben)'},'📁 Carpeta de medios'),h('button',{onclick:pickFiles},'＋ Archivos'),h('input',{type:'text',placeholder:'Buscar…',value:PT.q,style:'flex:1;min-width:70px',oninput:e=>{PT.q=e.target.value;renderProject();const i=$('#projBody input[type=text]');if(i){i.focus();i.setSelectionRange(PT.q.length,PT.q.length);}}}));
  b.append(tb);
- if(PT.sels.size){const selA=[...PT.sels].map(id=>P.assets[id]).filter(Boolean),vids=selA.filter(a=>a.kind==='video'&&MEDIA[a.id]&&MEDIA[a.id].file&&!MEDIA[a.id].proxy);b.append(h('div',{class:'selbar'},h('span',{text:selA.length+' seleccionado(s)'}),h('button',{class:'dng',onclick:()=>removeAssets([...PT.sels]),title:'Quita de la lista del proyecto (no borra el archivo de tu equipo). Tecla Supr.'},'🗑 Quitar'),vids.length?h('button',{onclick:()=>makeProxies(vids),title:'Convierte a H.264 ligero para editar con fluidez (útil con ProRes, 4K o RAW)'},'⚙ Crear proxy'):null,h('button',{onclick:()=>{PT.sels.clear();renderProject();}},'Deseleccionar')));}
- {const bads=Object.values(P.assets).filter(a=>{const m=MEDIA[a.id];return m&&m.bad&&m.file&&!m.proxy&&a.kind==='video';});if(bads.length)b.append(h('div',{class:'banner'},'⚠ '+bads.length+' video(s) no se pueden reproducir en el navegador (ProRes, RAW…). Se convierten a proxies H.264 en tu equipo, sin subir nada. ',h('button',{class:'pri',onclick:()=>makeProxies(bads)},'Crear proxies')));}
+ if(PT.sels.size){const selA=[...PT.sels].map(id=>P.assets[id]).filter(Boolean),vids=selA.filter(a=>a.kind==='video'&&MEDIA[a.id]&&MEDIA[a.id].file&&!MEDIA[a.id].proxy);b.append(h('div',{class:'selbar'},h('span',{text:selA.length+' seleccionado(s)'}),h('button',{class:'dng',onclick:()=>removeAssets([...PT.sels]),title:'Quita de la lista del proyecto (no borra el archivo de tu equipo). Tecla Supr.'},'🗑 Quitar'),vids.length?h('button',{onclick:()=>proxyDialog(vids),title:'Convierte a H.264 ligero para editar con fluidez (útil con ProRes, 4K o RAW)'},'⚙ Crear proxy'):null,h('button',{onclick:()=>{PT.sels.clear();renderProject();}},'Deseleccionar')));}
+ {const bads=Object.values(P.assets).filter(a=>{const m=MEDIA[a.id];return m&&m.bad&&m.file&&!m.proxy&&a.kind==='video';});if(bads.length)b.append(h('div',{class:'banner'},'⚠ '+bads.length+' video(s) no se pueden reproducir en el navegador (ProRes, RAW…). Se convierten a proxies H.264 en tu equipo, sin subir nada. ',h('button',{class:'pri',onclick:()=>proxyDialog(bads)},'Crear proxies')));}
  if(ROOT.pending)b.append(h('div',{class:'banner'},'Hay una carpeta recordada («'+ROOT.pending.name+'»). ',h('button',{class:'pri',onclick:reconnectRoot},'Reconectar')));
  else if(miss&&n)b.append(h('div',{class:'banner'},'⚠ '+miss+' medios sin conexión. Elige tu carpeta raíz: se enlazan por ruta relativa ('+(ROOT.name?'actual: '+ROOT.name:'sin carpeta')+').',h('button',{onclick:pickFolder},'Elegir carpeta')));
  if(!n){b.append(h('div',{class:'empty'},h('b',{text:'Tu proyecto está vacío'}),h('p',{text:'1) Elige la carpeta raíz donde guardas tus medios.\n2) Los archivos se leen desde tu equipo: no se suben a ningún servidor.\n3) Quien colabore debe usar el mismo árbol de carpetas; EdiTsar los enlaza por la ruta relativa.',style:'white-space:pre-line;text-align:left'}),h('button',{class:'pri',onclick:pickFolder},'📁 Elegir carpeta de medios')));return;}
@@ -1032,6 +1043,172 @@ function homeShow(){if(P)saveLocal();let e=$('#home');if(!e){e=h('div',{id:'home
     mine?bt('Eliminar',()=>askConfirm('Eliminar de la nube','Se eliminará «'+x.name+'» de la nube para todos los colaboradores. Esta acción no se puede deshacer.','Eliminar',async()=>{try{await cloudDoc(x.id).delete();toast('Eliminado de la nube');if($('#home'))homeShow();}catch(err){toast(fbMsg(err),4000);}},true),'dng'):null)));});
   if(!l.length)cloudBox.append(h('div',{class:'empty',text:'Sin proyectos en la nube'}));});}
  else{cloudHead.style.display='';cloudHead.textContent='☁ En la nube';cloudBox.append(h('div',{class:'empty'},'Inicia sesión para ver tus proyectos compartidos. ',h('button',{onclick:accountDialog},'Cuenta')));}}
+
+/* ---------- tamaño de proxy ---------- */
+function proxyDialog(list){const sel=h('select',{},...[[960,'960 px (ligero, rápido)'],[1280,'1280 px (equilibrado)'],[1920,'1920 px (calidad casi final, pesado y lento)']].map(([v,t])=>h('option',{value:v,text:t,selected:v===PXS})));
+ modal('Crear proxies',h('div',{},h('p',{text:'Tamaño máximo del ancho. Más grande = mejor imagen al exportar, pero tarda más en convertir y pesa más.',style:'max-width:380px'}),h('div',{class:'f'},h('label',{},'Tamaño'),sel)),
+  [h('button',{onclick:closeModal},'Cancelar'),h('button',{class:'pri',onclick:()=>{PXS=+sel.value;try{localStorage.setItem('ed.psz',String(PXS));}catch(e){}closeModal();makeProxies(list);}},'Convertir')]);}
+/* ---------- exportar a Premiere (Final Cut Pro XML / xmeml v4, se importa con Archivo > Importar) ---------- */
+function xe(s){return String(s).replace(/[<>&"']/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&apos;'}[c]));}
+function buildPremiereXML(){
+ const fps=P.fps||30,ntsc=[23.976,29.97,59.94].some(x=>Math.abs(fps-x)<.02),tb=Math.round(fps),fr=t=>Math.round(t*fps),W=P.w||1920,H=P.h||1080;
+ const rate='<rate><timebase>'+tb+'</timebase><ntsc>'+(ntsc?'TRUE':'FALSE')+'</ntsc></rate>';
+ const clips=clipsArr().filter(c=>!c.tx&&P.assets[c.a]&&(P.assets[c.a].kind==='video'||P.assets[c.a].kind==='audio')),skipped=clipsArr().length-clips.length;
+ const fid={};let fn=0;let end=0;clips.forEach(c=>{end=Math.max(end,c.s+c.d);});
+ const fileXml=a=>{if(fid[a.id])return '<file id="'+fid[a.id]+'"/>';fid[a.id]='file-'+(++fn);
+  const orig=a.path||a.name;return '<file id="'+fid[a.id]+'"><name>'+xe(a.name)+'</name><pathurl>'+xe('file://localhost/'+orig.split('/').map(encodeURIComponent).join('/'))+'</pathurl>'+rate+'<duration>'+fr(a.dur||0)+'</duration><media>'+(a.kind==='video'?'<video><samplecharacteristics>'+rate+'<width>'+(a.w||W)+'</width><height>'+(a.h||H)+'</height></samplecharacteristics></video>':'')+'<audio><samplecharacteristics><depth>16</depth><samplerate>48000</samplerate></samplecharacteristics><channelcount>2</channelcount></audio></media></file>';};
+ const order=P.tracks.map(t=>t.id),vT=order.filter(isV).reverse(),aT=order.filter(t=>!isV(t));/* Premiere numera V1 abajo */
+ const idOf={};clips.forEach((c,i)=>{idOf[c.id]='ci-'+(i+1);});
+ const links=c=>{const out=[];for(const o of clips){if(o.id===c.id||o.a!==c.a||Math.abs(o.s-c.s)>.02||Math.abs(o.i-c.i)>.02||isV(o.tr)===isV(c.tr))continue;
+   const list=isV(o.tr)?vT:aT,ti=list.indexOf(o.tr)+1;out.push('<link><linkclipref>'+idOf[o.id]+'</linkclipref><mediatype>'+(isV(o.tr)?'video':'audio')+'</mediatype><trackindex>'+ti+'</trackindex></link>');}return out.join('');};
+ const item=(c,isVid,ti)=>{const a=P.assets[c.a],sp=c.sp||1,s=fr(c.s),e=fr(c.s+c.d),i=fr(c.i),o=i+fr(c.d*sp);
+  return '<clipitem id="'+idOf[c.id]+'"><name>'+xe(c.name||a.name)+'</name><enabled>TRUE</enabled><duration>'+fr(a.dur||0)+'</duration>'+rate+'<start>'+s+'</start><end>'+e+'</end><in>'+i+'</in><out>'+o+'</out>'+fileXml(a)
+   +(isVid?'':'<sourcetrack><mediatype>audio</mediatype><trackindex>1</trackindex></sourcetrack>')
+   +(isVid&&Math.abs(sp-1)>.001?'<filter><effect><name>Time Remap</name><effectid>timeremap</effectid><effectcategory>motion</effectcategory><effecttype>motion</effecttype><mediatype>video</mediatype><parameter authoringApp="PremierePro"><parameterid>speed</parameterid><name>speed</name><valuemin>-100000</valuemin><valuemax>100000</valuemax><value>'+(sp*100)+'</value></parameter></effect></filter>':'')
+   +links(c)+'</clipitem>';};
+ const trn=(c,isVid)=>{if(!c.trin||!c.trin.d)return '';const d=fr(c.trin.d),s0=fr(c.s)-Math.floor(d/2);return '<transitionitem><start>'+s0+'</start><end>'+(s0+d)+'</end><alignment>center</alignment><effect><name>'+(isVid?'Cross Dissolve':'Constant Power')+'</name><effectid>'+(isVid?'Cross Dissolve':'KGAudioTransCrossFade3dB')+'</effectid><effectcategory>'+(isVid?'Dissolve':'')+'</effectcategory><effecttype>transition</effecttype><mediatype>'+(isVid?'video':'audio')+'</mediatype></effect></transitionitem>';};
+ const trackXml=(list,isVid)=>list.map((id,ti)=>'<track>'+clips.filter(c=>c.tr===id&&(isVid?a_isV(c):!a_isV(c))).sort((x,y)=>x.s-y.s).map(c=>trn(c,isVid)+item(c,isVid,ti+1)).join('')+'</track>').join('');
+ const mks=Object.values(P.markers||{}).sort((x,y)=>x.t-y.t).map(m=>'<marker><name>'+xe(m.name||'Marcador')+'</name><comment>'+xe((m.who?m.who+': ':'')+(m.name||''))+'</comment><in>'+fr(m.t)+'</in><out>-1</out></marker>').join('');
+ function a_isV(c){return isV(c.tr);}
+ const xml='<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE xmeml>\n<xmeml version="4"><sequence id="sequence-1"><name>'+xe(P.name||'Secuencia')+'</name><duration>'+fr(end)+'</duration>'+rate+'<media><video><format><samplecharacteristics>'+rate+'<width>'+W+'</width><height>'+H+'</height><pixelaspectratio>square</pixelaspectratio></samplecharacteristics></format>'+trackXml(vT,true)+'</video><audio><numOutputChannels>2</numOutputChannels>'+trackXml(aT,false)+'</audio></media>'+mks+'</sequence></xmeml>';
+ return{xml,count:clips.length,skipped,clips};}
+function premiereDialog(){const r=buildPremiereXML();
+ modal('Exportar a Premiere Pro',h('div',{style:'max-width:420px'},h('p',{text:'Se genera un archivo XML con tu secuencia ('+r.count+' clips con su posición, duración, recortes, velocidad y pistas). En Premiere: Archivo → Importar y elige el XML.'}),
+  h('p',{text:'Premiere te pedirá enlazar los medios (usa los ORIGINALES, no los proxies) con «Vincular medios». Van también tus marcadores y las transiciones (como disolvencia). No se transfieren los efectos de color, keyframes ni LUTs'+(r.skipped?'; además se omiten '+r.skipped+' clip(s) de texto o imagen':'')+'.',style:'color:var(--mu)'})),
+  [h('button',{onclick:closeModal},'Cancelar'),h('button',{onclick:()=>{const e=buildEDL();closeModal();download((P.name||'secuencia').replace(/[^\w\-. ]+/g,'_')+'.edl',new Blob([e.edl],{type:'text/plain'}));toast('EDL listo ('+e.count+' eventos)');},title:'Lista de cortes CMX3600: solo posiciones y recortes; sirve también para DaVinci, Avid, etc.'},'Descargar EDL'),h('button',{class:'pri',onclick:()=>{closeModal();download((P.name||'secuencia').replace(/[^\w\-. ]+/g,'_')+'.xml',new Blob([r.xml],{type:'application/xml'}));toast('XML listo para importar en Premiere');}},'Descargar XML')]);}
+
+function buildEDL(){const fps=P.fps||30,tb=Math.round(fps),ntsc=[23.976,29.97,59.94].some(x=>Math.abs(fps-x)<.02);
+ const tc=f=>{f=Math.max(0,Math.round(f));const ff=f%tb,sec=Math.floor(f/tb),ss=sec%60,mm=Math.floor(sec/60)%60,hh=Math.floor(sec/3600);return[hh,mm,ss,ff].map(n=>String(n).padStart(2,'0')).join(':');};
+ const fr=t=>t*fps;let out='TITLE: '+(P.name||'Secuencia')+'\nFCM: NON-DROP FRAME\n\n',n=0;
+ const cl=clipsArr().filter(c=>!c.tx&&P.assets[c.a]&&(P.assets[c.a].kind==='video'||P.assets[c.a].kind==='audio'));
+ const trs=['V1',...P.tracks.map(t=>t.id).filter(t=>!isV(t))];
+ for(const tr of trs){const list=cl.filter(c=>c.tr===tr).sort((x,y)=>x.s-y.s);if(!list.length)continue;
+  for(const c of list){const a=P.assets[c.a],sp=c.sp||1,kind=isV(tr)?'V':(tr==='A2'?'A2':'A'),reel=(a.name.replace(/\.[^.]+$/,'').replace(/[^A-Za-z0-9]/g,'').slice(0,8)||'AX').toUpperCase().padEnd(8,' ');
+   out+=String(++n).padStart(3,'0')+'  '+reel+' '+kind.padEnd(5,' ')+' C        '+tc(fr(c.i))+' '+tc(fr(c.i+c.d*sp))+' '+tc(fr(c.s))+' '+tc(fr(c.s+c.d))+'\n';
+   out+='* FROM CLIP NAME: '+a.name+'\n';if(Math.abs(sp-1)>.001)out+='M2   '+reel+' '+(fps*sp).toFixed(1).padStart(6,' ')+'  '+tc(fr(c.i))+'\n';out+='\n';}}
+ return{edl:out,count:n,ntsc};}
+
+/* ================= API de edición para Claude (JSON) ================= */
+const R3=x=>Math.round(x*1000)/1000;
+function apiAsset(k){if(P.assets[k])return P.assets[k];const l=String(k).toLowerCase();return Object.values(P.assets).find(a=>a.name.toLowerCase()===l)||Object.values(P.assets).find(a=>a.name.toLowerCase().includes(l))||null;}
+function apiClip(k){const c=P.clips[k];if(!c)throw new Error('No existe el clip '+k);return c;}
+function apiState(){return{project:P.name,fps:P.fps,width:P.w,height:P.h,playhead:R3(ST.t),duration:R3(projEnd()),tracks:P.tracks.map(t=>t.id),
+ assets:Object.values(P.assets).map(a=>({id:a.id,name:a.name,kind:a.kind,dur:a.dur?R3(a.dur):0,w:a.w,h:a.h})),
+ clips:clipsArr().sort((a,b)=>a.tr.localeCompare(b.tr)||a.s-b.s).map(c=>({id:c.id,track:c.tr,asset:c.tx?null:(P.assets[c.a]||{}).name,start:R3(c.s),dur:R3(c.d),in:R3(c.i),speed:c.sp||1,volume:c.vol||0,link:c.lk||null,text:c.tx?c.tx.text:undefined,transition:c.trin||undefined,fx:Object.keys(c.fx||{}).length?c.fx:undefined})),
+ markers:Object.entries(P.markers||{}).map(([id,m])=>({id,t:R3(m.t),name:m.name||''}))};}
+function apiSplit(c,t){if(t<=c.s+.01||t>=c.s+c.d-.01)throw new Error('El corte debe caer dentro del clip '+c.id);const grp=[c,...linkedOf(c)],nl=uid();
+ for(const o of grp){const sp=o.sp||1,cut=t-o.s,r=JSON.parse(JSON.stringify(o));r.id=uid();r.s=t;r.i=o.i+cut*sp;r.d=o.d-cut;r.lk=o.lk?nl:null;r._t=Date.now();delete r.trin;r.fi=0;
+  for(const p in r.fx){if(Array.isArray(r.fx[p]))r.fx[p]=r.fx[p].map(k=>[k[0]-cut,k[1],k[2]]).filter(k=>k[0]>=-1e-6||true);}
+  o.d=cut;o.fo=0;P.clips[r.id]=r;}}
+function apiOp(o){const k=o.op;
+ switch(k){
+ case 'addClip':{const a=apiAsset(o.asset);if(!a)throw new Error('No encuentro el medio '+o.asset);const made=addAssetAt(a.id,+o.start||0,o.track,(o.in!=null||o.out!=null)?{i:o.in||0,o:o.out||a.dur}:null);return made.map(c=>c.id);}
+ case 'addText':{const c=addTitle(+o.start||0,o.track);if(!c)return null;const cl=Array.isArray(c)?c[0]:c;if(cl){if(o.text!=null)cl.tx.text=o.text;if(o.dur)cl.d=+o.dur;if(o.size)cl.tx.size=+o.size;if(o.color)cl.tx.color=o.color;return cl.id;}return null;}
+ case 'split':{apiSplit(apiClip(o.clip),+o.at);return true;}
+ case 'trim':{const c=apiClip(o.clip);for(const x of [c,...linkedOf(c)]){const sp=x.sp||1;if(o.start!=null){const ns=+o.start,dl=ns-x.s;x.i=Math.max(0,x.i+dl*sp);x.d=Math.max(.04,x.d-dl);x.s=ns;}if(o.end!=null)x.d=Math.max(.04,+o.end-x.s);if(o.dur!=null)x.d=Math.max(.04,+o.dur);if(o.in!=null){x.i=+o.in;}}return true;}
+ case 'move':{const c=apiClip(o.clip),dt=(o.start!=null?+o.start-c.s:0);for(const x of [c,...linkedOf(c)]){x.s=Math.max(0,x.s+dt);}if(o.track){const same=isV(o.track)===isV(c.tr);if(!same)throw new Error('Pista de otro tipo');c.tr=o.track;}return true;}
+ case 'delete':{const ids=[].concat(o.clips||o.clip),all=new Set();ids.forEach(i=>{const c=apiClip(i);all.add(c.id);if(o.unlinked!==true)linkedOf(c).forEach(x=>all.add(x.id));});
+  const list=[...all].map(i=>P.clips[i]);if(o.ripple){for(const c of list){const gap=c.d;for(const x of clipsArr()){if(all.has(x.id))continue;if(x.tr===c.tr&&x.s>=c.s+c.d-.01)x.s=Math.max(0,x.s-gap);}}}
+  all.forEach(i=>delete P.clips[i]);return all.size;}
+ case 'speed':{const c=apiClip(o.clip),v=Math.max(.1,Math.min(8,+o.value));for(const x of [c,...linkedOf(c)]){const src=x.d*(x.sp||1);x.sp=v;x.d=src/v;}return true;}
+ case 'volume':{const c=apiClip(o.clip);c.vol=+o.value;return true;}
+ case 'fx':{const c=apiClip(o.clip);if(!(o.prop in FXD))throw new Error('Propiedad desconocida: '+o.prop+' (usa: '+Object.keys(FXD).join(', ')+')');c.fx[o.prop]=(o.prop==='lut')?o.value:+o.value;return true;}
+ case 'keyframe':{const c=apiClip(o.clip);if(!KEYABLE.includes(o.prop))throw new Error('No admite keyframes: '+o.prop);let ks=c.fx[o.prop];if(!Array.isArray(ks))ks=c.fx[o.prop]=[[0,ks!=null?ks:FXD[o.prop],1]];const t=+o.time,i=ks.findIndex(q=>Math.abs(q[0]-t)<.02),kk=[t,+o.value,o.mode==null?1:o.mode];if(i>=0)ks[i]=kk;else ks.push(kk);ks.sort((a,b)=>a[0]-b[0]);return true;}
+ case 'transition':{const c=apiClip(o.clip);for(const x of [c,...linkedOf(c)]){if(!o.kind)delete x.trin;else{if(!TRNAMES[o.kind])throw new Error('Transición desconocida: '+o.kind+' ('+Object.keys(TRNAMES).join(', ')+')');x.trin={k:o.kind,d:+o.dur||1};}}return true;}
+ case 'fade':{const c=apiClip(o.clip);if(o.in!=null)c.fi=+o.in;if(o.out!=null)c.fo=+o.out;return true;}
+ case 'marker':{const id=uid();P.markers[id]={t:+o.t,name:o.name||'',kind:'m'};return id;}
+ case 'rename':{P.name=String(o.name);return true;}
+ case 'playhead':{ST.t=Math.max(0,+o.t);return true;}
+ default:throw new Error('Operación desconocida: '+k);}}
+function apiRun(ops,label){ops=Array.isArray(ops)?ops:[ops];const res=[];let n=0;
+ edit(label||'Claude',()=>{for(const o of ops){try{res.push({ok:true,result:apiOp(o)});n++;}catch(e){res.push({ok:false,error:e.message});}}});
+ if(typeof renderProject==='function')renderProject();$('#pname')&&(P.name!==$('#pname').value)&&($('#pname').value=P.name);
+ return{applied:n,failed:ops.length-n,results:res};}
+const API_GUIDE=`GUÍA PARA CLAUDE · EdiTsar API de edición
+Acceso (en la pestaña de EdiTsar con el navegador conectado, vía javascript_tool):
+  EdiTsarAPI.state()            → JSON con pistas, medios (assets), clips (id, track, start, dur, in, speed…) y marcadores
+  EdiTsarAPI.run([ops...])      → aplica operaciones como UN solo cambio (deshacible con Ctrl+Z); devuelve resultados por operación
+Tiempos en segundos. Los clips se identifican por su id (sale en state()). Un video con audio son 2 clips enlazados: las operaciones afectan a ambos.
+Operaciones ({op:...}):
+  addClip   {asset:'nombre o id', start:0, track:'V1', in:0, out:5}      (in/out opcionales: recorte del medio)
+  addText   {start, dur, text, size, color, track}
+  split     {clip, at}                  corta el clip en el segundo 'at' (tiempo de la secuencia)
+  trim      {clip, start|end|dur|in}    start/end en tiempo de secuencia; in = punto de entrada en el medio
+  move      {clip, start, track}
+  delete    {clips:[ids], ripple:true|false}
+  speed     {clip, value}               0.1–8
+  volume    {clip, value}               dB
+  fx        {clip, prop, value}         prop: op px py sc rot exp con sat tmp tint lift vig blur bw sep lut lutmix
+  keyframe  {clip, prop, time, value, mode}   time relativo al inicio del clip; mode 0 suave, 1 lineal, 2 mantener
+  transition{clip, kind, dur}           kind: dis dipk dipw wl wr wu wd sl sr psl psr ('' la quita); se aplica al inicio del clip
+  fade      {clip, in, out}
+  marker    {t, name}      rename {name}      playhead {t}
+Flujo recomendado: state() → decidir → run([...]) → state() para verificar. Si falla una operación, las demás se aplican igual; revisa results.`;
+window.EdiTsarAPI={version:1,state:apiState,run:apiRun,help:()=>API_GUIDE};
+function claudeDialog(){const ta=h('textarea',{rows:10,style:'width:100%;font-family:monospace;font-size:12px',placeholder:'[{"op":"split","clip":"…","at":4.2}]'});const out=h('pre',{style:'max-height:140px;overflow:auto;font-size:11px;white-space:pre-wrap'});
+ modal('Comandos de Claude',h('div',{style:'width:520px;max-width:90vw'},h('p',{text:'Pega aquí los comandos JSON que Claude te dé, o copia la guía para pasársela a Claude en otra conversación.',style:'color:var(--mu)'}),ta,out),
+  [h('button',{onclick:()=>{navigator.clipboard.writeText(API_GUIDE).then(()=>toast('Guía copiada'),()=>toast('No se pudo copiar'));}},'Copiar guía para Claude'),h('button',{onclick:()=>{navigator.clipboard.writeText(JSON.stringify(apiState(),null,1)).then(()=>toast('Estado del proyecto copiado'),()=>toast('No se pudo copiar'));}},'Copiar estado del proyecto'),h('button',{onclick:closeModal},'Cerrar'),
+   h('button',{class:'pri',onclick:()=>{try{apiRunAsync(JSON.parse(ta.value)).then(r=>{out.textContent=r.applied+' aplicada(s), '+r.failed+' con error\n'+r.results.filter(x=>!x.ok).map(x=>x.error).join('\n');});}catch(e){out.textContent='JSON inválido: '+e.message;}}},'Aplicar')]);}
+
+/* ================= Herramientas de audio: sincronizar, silencios, hoja de fotogramas ================= */
+function fftInPlace(re,im,inv){const n=re.length;for(let i=1,j=0;i<n;i++){let b=n>>1;for(;j&b;b>>=1)j^=b;j^=b;if(i<j){let t=re[i];re[i]=re[j];re[j]=t;t=im[i];im[i]=im[j];im[j]=t;}}
+ for(let len=2;len<=n;len<<=1){const ang=2*Math.PI/len*(inv?-1:1),wr=Math.cos(ang),wi=Math.sin(ang);for(let i=0;i<n;i+=len){let cr=1,ci=0;for(let k=0;k<len/2;k++){const a=i+k,b=i+k+len/2,xr=re[b]*cr-im[b]*ci,xi=re[b]*ci+im[b]*cr;re[b]=re[a]-xr;im[b]=im[a]-xi;re[a]+=xr;im[a]+=xi;const t=cr*wr-ci*wi;ci=cr*wi+ci*wr;cr=t;}}}
+ if(inv)for(let i=0;i<n;i++){re[i]/=n;im[i]/=n;}}
+async function decodeMono(aid,maxSec,rate){const m=MEDIA[aid],a=P.assets[aid];if(!m||!m.url)throw new Error('El medio «'+(a?a.name:aid)+'» no está disponible (reconecta la carpeta)');
+ if(m.file&&m.file.size>600e6)throw new Error('«'+a.name+'» pesa demasiado para analizar su audio ('+Math.round(m.file.size/1e6)+' MB). Crea el proxy primero.');
+ const buf=await (await fetch(m.url)).arrayBuffer();const oc=new OfflineAudioContext(1,1,rate);let ab;try{ab=await oc.decodeAudioData(buf);}catch(e){throw new Error('No se pudo leer el audio de «'+a.name+'» (¿formato no compatible? crea el proxy)');}
+ const d=ab.getChannelData(0);return d.length>maxSec*rate?d.slice(0,Math.floor(maxSec*rate)):d;}
+function envelope(d,rate,outRate){const k=Math.max(1,Math.round(rate/outRate)),n=Math.floor(d.length/k),e=new Float64Array(n);let mean=0;for(let i=0;i<n;i++){let s=0;for(let j=0;j<k;j++)s+=Math.abs(d[i*k+j]);e[i]=s/k;mean+=e[i];}mean/=Math.max(1,n);let nrm=0;for(let i=0;i<n;i++){e[i]-=mean;nrm+=e[i]*e[i];}return{e,nrm:Math.sqrt(nrm)||1};}
+async function audioOffset(refAid,extAid){const R=8000,O=1000,mx=600;const [ra,ea]=[await decodeMono(refAid,mx,R),await decodeMono(extAid,mx,R)];
+ const A=envelope(ea,R,O),B=envelope(ra,R,O);let n=1;while(n<A.e.length+B.e.length)n<<=1;
+ const ar=new Float64Array(n),ai=new Float64Array(n),br=new Float64Array(n),bi=new Float64Array(n);ar.set(A.e);br.set(B.e);fftInPlace(ar,ai,false);fftInPlace(br,bi,false);
+ for(let i=0;i<n;i++){const xr=ar[i]*br[i]+ai[i]*bi[i],xi=ai[i]*br[i]-ar[i]*bi[i];ar[i]=xr;ai[i]=xi;}fftInPlace(ar,ai,true);
+ let best=-Infinity,bi_=0;for(let i=0;i<n;i++){const v=ar[i];if(v>best){best=v;bi_=i;}}const lag=(bi_>n/2?bi_-n:bi_)/O;return{lag,confidence:best/(A.nrm*B.nrm)};}
+async function apiSyncAudio(o){const ref=apiClip(o.ref),ext=apiClip(o.ext);const ra=ref.a,ea=ext.a;if(!ra||!ea)throw new Error('Los dos clips deben ser de medios con audio');
+ const r=await audioOffset(ra,ea);if(r.confidence<.08&&!o.force)throw new Error('No encontré coincidencia clara entre los dos audios (confianza '+r.confidence.toFixed(2)+'). ¿Grabaron el mismo sonido?');
+ const ns=ref.s-ref.i+ext.i-r.lag;edit('Sincronizar por audio',()=>{const dt=ns-ext.s;for(const x of [ext,...linkedOf(ext)]){let ns2=x.s+dt;if(ns2<0){const cut=-ns2;x.i+=cut*(x.sp||1);x.d=Math.max(.04,x.d-cut);ns2=0;}x.s=ns2;}});renderTL();
+ return{offsetSeconds:+r.lag.toFixed(3),confidence:+r.confidence.toFixed(2),newStart:+ns.toFixed(3)};}
+async function findSilences(c,thDb,minS){const d=await decodeMono(c.a,3600,8000),w=160;const th=Math.pow(10,thDb/20),segs=[];let st=null;
+ const n=Math.floor(d.length/w);for(let i=0;i<=n;i++){let rms=1;if(i<n){let s=0;for(let j=0;j<w;j++){const v=d[i*w+j];s+=v*v;}rms=Math.sqrt(s/w);}const t=i*w/8000;
+  if(rms<th){if(st==null)st=t;}else if(st!=null){if(t-st>=minS)segs.push([st,t]);st=null;}}
+ if(st!=null&&n*w/8000-st>=minS)segs.push([st,n*w/8000]);return segs;}
+async function apiSilences(o){const c=apiClip(o.clip),a=P.assets[c.a];if(!a)throw new Error('Clip sin medio');const th=o.threshold!=null?+o.threshold:-40,ms=o.minSilence!=null?+o.minSilence:.6;
+ const segs=await findSilences(c,th,ms);const lo=c.i,hi=c.i+c.d*(c.sp||1);return segs.map(([a0,b0])=>[Math.max(a0,lo),Math.min(b0,hi)]).filter(s=>s[1]-s[0]>=ms).map(s=>[R3(s[0]),R3(s[1])]);}
+async function apiCutSilences(o){const c0=apiClip(o.clip);if((c0.sp||1)!==1)throw new Error('Quita primero el cambio de velocidad del clip');const pad=o.pad!=null?+o.pad:.12;const sil=await apiSilences(o);
+ if(!sil.length)return{removed:0,pieces:1};const keep=[];let cur=c0.i;const end=c0.i+c0.d;
+ for(const [a,b] of sil){const a2=a+pad,b2=b-pad;if(b2-a2<.1)continue;if(a2>cur+.05)keep.push([cur,a2]);cur=b2;}if(end>cur+.05)keep.push([cur,end]);
+ const grp=[c0,...linkedOf(c0)];let removed=0;
+ edit('Cortar silencios',()=>{let cursor=c0.s;keep.forEach((k,idx)=>{const nl=uid();for(const o2 of grp){const r=JSON.parse(JSON.stringify(o2));r.id=uid();r.i=k[0];r.d=k[1]-k[0];r.s=cursor;r.lk=o2.lk?nl:null;r._t=Date.now();if(idx)delete r.trin;P.clips[r.id]=r;}cursor+=k[1]-k[0];});
+  for(const o2 of grp)delete P.clips[o2.id];removed=R3(c0.d-keep.reduce((s,k)=>s+k[1]-k[0],0));});
+ renderTL();return{removedSeconds:removed,pieces:keep.length,silences:sil.length};}
+async function apiContactSheet(o){o=o||{};const n=Math.max(1,Math.min(24,o.count||8)),w=o.width||320,cv=$('#cv'),end=projEnd();if(!end)throw new Error('La secuencia está vacía');const was=ST.t;
+ const cols=Math.min(n,4),rows=Math.ceil(n/cols),h2=Math.round(w*cv.height/cv.width),sh=document.createElement('canvas');sh.width=cols*w;sh.height=rows*(h2+16);const g=sh.getContext('2d');g.fillStyle='#000';g.fillRect(0,0,sh.width,sh.height);g.font='12px sans-serif';
+ for(let i=0;i<n;i++){const t=n===1?(o.t||0):end*(i+.5)/n;ST.t=t;if(typeof syncMedia==='function')syncMedia(t,false);await new Promise(r=>setTimeout(r,650));const x=(i%cols)*w,y=Math.floor(i/cols)*(h2+16);g.drawImage(cv,x,y+16,w,h2);g.fillStyle='#ffb347';g.fillText(R3(t)+' s',x+4,y+12);}
+ ST.t=was;return sh.toDataURL('image/jpeg',.82);}
+async function apiRunAsync(ops,label){ops=[].concat(ops);const res=[];let pend=[];const flush=()=>{if(pend.length){const r=apiRun(pend,label);res.push(...r.results);pend=[];}};
+ for(const o of ops){if(['syncAudio','silences','cutSilences'].includes(o.op)){flush();try{const f={syncAudio:apiSyncAudio,silences:apiSilences,cutSilences:apiCutSilences}[o.op];res.push({ok:true,result:await f(o)});}catch(e){res.push({ok:false,error:e.message});}}else pend.push(o);}
+ flush();return{applied:res.filter(x=>x.ok).length,failed:res.filter(x=>!x.ok).length,results:res};}
+Object.assign(window.EdiTsarAPI,{runAsync:apiRunAsync,syncAudio:apiSyncAudio,silences:apiSilences,cutSilences:apiCutSilences,contactSheet:apiContactSheet,help:()=>API_GUIDE+API_GUIDE2});
+const API_GUIDE2=`
+Operaciones asíncronas (usar EdiTsarAPI.runAsync([...]) con await):
+  syncAudio   {ref:'clip de la cámara', ext:'clip del audio externo'}   alinea el clip ext por correlación de ondas
+  silences    {clip, threshold:-40, minSilence:.6}                       devuelve los silencios [inicio,fin] en tiempo del medio
+  cutSilences {clip, threshold:-40, minSilence:.6, pad:.12}              corta los silencios y cierra los huecos
+Ver la secuencia: await EdiTsarAPI.contactSheet({count:8,width:320}) → imagen JPEG (dataURL) con fotogramas repartidos por la secuencia.
+Los medios deben poder decodificarse en el navegador (si es ProRes, crea el proxy antes).`;
+function audioToolsDialog(){const sel=[...ST.sel].map(i=>P.clips[i]).filter(Boolean),out=h('pre',{style:'font-size:12px;white-space:pre-wrap;max-height:140px;overflow:auto'});
+ const th=h('input',{type:'number',value:-40,style:'width:70px'}),ms=h('input',{type:'number',step:.1,value:.6,style:'width:70px'});
+ const bySel=()=>{const s=[...ST.sel].map(i=>P.clips[i]).filter(Boolean);return s;};
+ const run=async fn=>{out.textContent='Analizando…';try{const r=await fn();out.textContent=JSON.stringify(r,null,1);}catch(e){out.textContent='⚠ '+e.message;}};
+ modal('Herramientas de audio',h('div',{style:'width:460px;max-width:90vw'},
+  h('p',{style:'color:var(--mu)',text:'Selecciona clips en la línea de tiempo y pulsa una herramienta.'}),
+  h('p',{},h('b',{text:'Sincronizar: '}),'selecciona 2 clips: el de la cámara y el del audio externo (clic y Mayús+clic). El audio externo se alinea con la cámara.'),
+  h('div',{class:'f'},h('button',{class:'pri',onclick:()=>run(async()=>{const s=bySel().filter(c=>c.a&&!c.tx);if(s.length!==2)throw new Error('Selecciona exactamente 2 clips (cámara y audio externo)');const ext=s.find(c=>!isV(c.tr))||s[1],ref=s.find(c=>c!==ext);return apiSyncAudio({ref:ref.id,ext:ext.id});})},'Sincronizar por audio')),
+  h('p',{},h('b',{text:'Silencios: '}),'umbral (dB) y duración mínima (s)'),h('div',{class:'f',style:'display:flex;gap:8px;align-items:center'},th,'dB',ms,'s',
+   h('button',{onclick:()=>run(async()=>{const s=bySel();if(s.length!==1)throw new Error('Selecciona 1 clip');return{silencios:await apiSilences({clip:s[0].id,threshold:+th.value,minSilence:+ms.value})};})},'Detectar'),
+   h('button',{class:'pri',onclick:()=>run(async()=>{const s=bySel();if(s.length!==1)throw new Error('Selecciona 1 clip');return apiCutSilences({clip:s[0].id,threshold:+th.value,minSilence:+ms.value});})},'Cortar silencios')),
+  h('p',{},h('b',{text:'Para que Claude vea la secuencia: '}),h('button',{onclick:()=>run(async()=>{const u=await apiContactSheet({count:8});const a=h('a',{href:u,download:'fotogramas.jpg'});document.body.append(a);a.click();a.remove();return'Se descargó fotogramas.jpg. Adjúntalo a la conversación con Claude.';})},'Descargar hoja de fotogramas')),out),
+  [h('button',{onclick:closeModal},'Cerrar')]);}
 /* ================= EdiTsar · archivos, exportación, nube, teclado ================= */
 function modal(title,body,btns,wide){closeModal();const m=h('div',{class:'modal',id:'mdl'},h('div',{class:'md',style:wide?'min-width:560px':''},h('h2',{text:title}),body,btns?h('div',{class:'btns'},...btns):null));m.addEventListener('mousedown',e=>{if(e.target===m&&!EXP.on)closeModal();});document.body.append(m);return m;}
 function closeModal(){const m=$('#mdl');if(m)m.remove();}
@@ -1141,7 +1318,7 @@ async function collabDialog(){await loadFirebase();const link=location.origin.st
 /* ---------- menús ---------- */
 function buildMenus(){
  const mk=(id,items)=>{const dd=$(id);dd.innerHTML='';items.forEach(it=>{if(it==='-'){dd.append(h('hr'));return;}dd.append(h('button',{onclick:()=>{$$('.menu').forEach(m=>m.classList.remove('open'));it[1]();}},h('span',{text:it[0]}),h('kbd',{text:it[2]||''})));});};
- mk('#ddFile',[['Proyectos (menú principal)…',homeShow],['Nuevo proyecto…',newProjectDialog],'-',['Carpeta de medios…',pickFolder],['Importar archivos…',pickFiles],'-',['Guardar copia (.editsar)',saveCopy,'Ctrl S'],['Importar proyecto (.editsar)…',importProjectFile],'-',['Exportar video…',exportDialog,'Ctrl E'],['Exportar fotograma actual (PNG)',exportFrame],['Exportar EDL (CMX 3600)',exportEDL],'-',['Ajustes del proyecto…',projectSettings]]);
+ mk('#ddFile',[['Proyectos (menú principal)…',homeShow],['Nuevo proyecto…',newProjectDialog],'-',['Carpeta de medios…',pickFolder],['Importar archivos…',pickFiles],'-',['Exportar a Premiere (XML)…',premiereDialog],['Comandos de Claude…',claudeDialog],['Herramientas de audio (sincronizar, silencios)…',audioToolsDialog],['Guardar copia (.editsar)',saveCopy,'Ctrl S'],['Importar proyecto (.editsar)…',importProjectFile],'-',['Exportar video…',exportDialog,'Ctrl E'],['Exportar fotograma actual (PNG)',exportFrame],['Exportar EDL (CMX 3600)',exportEDL],'-',['Ajustes del proyecto…',projectSettings]]);
  mk('#ddEdit',[['Deshacer',undo,'Ctrl Z'],['Rehacer',redo,'Ctrl ⇧Z'],'-',['Copiar',copySel,'Ctrl C'],['Pegar en el cabezal',pasteClips,'Ctrl V'],['Eliminar',()=>doDelete(false),'Supr'],['Eliminar y cerrar hueco',()=>doDelete(true),'⇧ Supr'],'-',['Seleccionar todo',selectAll,'Ctrl A'],['Dividir en el cabezal',splitAtPlayhead,'Ctrl K'],'-',['Vincular selección',linkSel],['Desvincular audio y video',unlinkSel],['Extraer audio a pista de destino',extractAudio]]);
  mk('#ddSeq',[['Añadir marcador',addMarker,'M'],['Añadir comentario…',()=>{showProjTab('cmt');}],'-',['Marcar entrada de secuencia',()=>{ST.tin=ST.t;renderTL();},'I'],['Marcar salida de secuencia',()=>{ST.tout=ST.t;renderTL();},'O'],['Quitar marcas',()=>{ST.tin=ST.tout=null;renderTL();}],'-',['Añadir pista de video',()=>addTrack('V')],['Añadir pista de audio',()=>addTrack('A')],['Quitar pistas vacías',removeEmptyTracks],'-',['Ir a la siguiente edición',nextEdit,'↓'],['Ir a la edición anterior',prevEdit,'↑']]);
  $$('.menu>button').forEach(b=>b.addEventListener('click',e=>{const m=b.parentNode,was=m.classList.contains('open');$$('.menu').forEach(x=>x.classList.remove('open'));if(!was)m.classList.add('open');e.stopPropagation();}));
@@ -1209,7 +1386,7 @@ function init(){
  gateShow('Verificando sesión…');loadFirebase().then(ok=>{if(!ok)gateShow('No se pudo conectar con el inicio de sesión (sin internet o bloqueado).',true);if(hashCloud)cloudOpen(hashCloud[1]);});
  window.addEventListener('hashchange',()=>{});
 }
-window.__E={get P(){return P;},ST,MEDIA,EL,ROOT,edit,undo,redo,addAssetAt,addTitle,splitAtPlayhead,applyEffect,mergeRemote,renderTL,drawProgram,seek,play,pause,pickFolder,scanFileList,afterRoot,rootReset,importEntries,projEnd,exportVideo,exportDone,exportEDL,setFx,resolveOverlaps,deleteClips,fxv,SY,CLIENT,syncSend,openSource,srcInsert,newProject,openProject,saveLocal,linkAll,splitClip,get EXP(){return EXP;},get err(){return window.__lastErr;},setSpeed,applyEffectFn:applyEffect,clipsArr,tcStr,setTrans,PT,parseCube,homeShow,duplicateLocal,renameLocal,deleteLocal,removeAssets,decodeCheck,makeProxies,ffInit,useProxy,findProxy,buildRT,get RT(){return RT;},lutApply,TRNAMES};
+window.__E={get P(){return P;},ST,MEDIA,EL,ROOT,edit,undo,redo,addAssetAt,addTitle,splitAtPlayhead,applyEffect,mergeRemote,renderTL,drawProgram,seek,play,pause,pickFolder,scanFileList,afterRoot,rootReset,importEntries,projEnd,exportVideo,exportDone,exportEDL,setFx,resolveOverlaps,deleteClips,fxv,SY,CLIENT,syncSend,openSource,srcInsert,newProject,openProject,saveLocal,linkAll,splitClip,get EXP(){return EXP;},get err(){return window.__lastErr;},setSpeed,applyEffectFn:applyEffect,clipsArr,tcStr,setTrans,PT,buildPremiereXML,buildEDL,apiRun,apiState,claudeDialog,audioToolsDialog,apiSyncAudio,apiCutSilences,apiSilences,apiContactSheet,premiereDialog,proxyDialog,parseCube,homeShow,duplicateLocal,renameLocal,deleteLocal,removeAssets,decodeCheck,makeProxies,ffInit,useProxy,findProxy,buildRT,get RT(){return RT;},lutApply,TRNAMES};
 init();
 })();
 </script></body></html>
